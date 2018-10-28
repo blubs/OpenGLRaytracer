@@ -28,6 +28,7 @@
   <ItemGroup>
     <None Include="draw_screen_frag.glsl" />
     <None Include="draw_screen_vert.glsl" />
+    <None Include="raytrace_compute.glsl" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>

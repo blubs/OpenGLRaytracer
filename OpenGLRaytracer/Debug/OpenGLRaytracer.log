@@ -1,7 +1,3 @@
 ﻿  main.cpp
-c:\users\f1\desktop\college\csc199\project\openglraytracer\openglraytracer\main.cpp(164): warning C4244: 'initializing': conversion from 'int' to 'float', possible loss of data
-c:\users\f1\desktop\college\csc199\project\openglraytracer\openglraytracer\main.cpp(165): warning C4244: 'initializing': conversion from 'int' to 'float', possible loss of data
-c:\users\f1\desktop\college\csc199\project\openglraytracer\openglraytracer\main.cpp(265): warning C4244: 'initializing': conversion from 'int' to 'float', possible loss of data
-c:\users\f1\desktop\college\csc199\project\openglraytracer\openglraytracer\main.cpp(266): warning C4244: 'initializing': conversion from 'int' to 'float', possible loss of data
   OpenGLRaytracer.vcxproj -> C:\Users\F1\Desktop\College\CSC199\Project\OpenGLRaytracer\Debug\OpenGLRaytracer.exe
   OpenGLRaytracer.vcxproj -> C:\Users\F1\Desktop\College\CSC199\Project\OpenGLRaytracer\Debug\OpenGLRaytracer.pdb (Partial PDB)

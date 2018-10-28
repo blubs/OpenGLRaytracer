@@ -7,29 +7,23 @@
 #include <glm\gtc\matrix_transform.hpp>
 
 
-
 void set_window_size_callback(GLFWwindow *win, int new_width, int new_height);
-void setup_screen_texture();
-void temp_update();
-
-
+void draw();
+void init();
 
 int window_width = 600;
 int window_height = 400;
-float window_aspect_ratio;
 
-// Define the max window width and height
-// Note: This is an arbitrary max width / height so we avoid 
-// having to reallocate the screen texture after every window resize
-#define MAX_WINDOW_WIDTH	3840
-#define MAX_WINDOW_HEIGHT	2160
-
+// The resolution to render the raytrace at
+#define RAYTRACE_RENDER_WIDTH	1280
+#define RAYTRACE_RENDER_HEIGHT	720
 
 
 // The texture ID of the fullscreen texture
 GLuint screen_texture_id;
-// The screen texture RGB888 color data
+// The screen texture RGBA8888 color data
 unsigned char *screen_texture = nullptr;
+
 
 
 // The vertex array object for the fullscreen quad
@@ -40,21 +34,9 @@ GLuint fullscreen_quad_vao;
 // [1] : the vertex texture coordinate data
 GLuint fullscreen_quad_vbo[2];
 
-
 GLuint screen_quad_shader = 0;
-//TODO: need to get the locations of the vertex attributes
-
 GLuint raytrace_compute_shader = 0;
 
-
-
-// A temporary function where I can setup init code
-// FIXME: remove this
-void temp_init();
-
-// A temporary function where I can setup update code
-// FIXME: remove this
-void temp_update();
 
 
 int main(void)
@@ -71,9 +53,7 @@ int main(void)
 
 	// Creating the window
 	GLFWwindow *window = glfwCreateWindow(window_width, window_height, "OpenGL Raytracer", NULL, NULL);
-
 	glfwGetWindowSize(window, &window_width, &window_height);
-	window_aspect_ratio = (float)window_width / (float)window_height;
 
 	//TODO: handle window size change at runtime
 	glfwSetWindowSizeCallback(window, set_window_size_callback);
@@ -90,17 +70,12 @@ int main(void)
 	// Specifying how long to wait before swapping screen buffers
 	glfwSwapInterval(1);
 
-	//============================
-	temp_init();
-	//============================
-
+	init();
+	
 	// Continuously draw the screen until it should close
 	while (!glfwWindowShouldClose(window))
 	{
-		//============================
-		temp_update();
-		//============================
-
+		draw();
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
@@ -119,89 +94,56 @@ void set_window_size_callback(GLFWwindow *win, int new_width, int new_height)
 {
 	window_width = new_width;
 	window_height = new_height;
-	window_aspect_ratio = (float)window_width / (float)window_height;
 
 	glViewport(0, 0, window_width, window_height);
 
-	// Resize the fullscreen texture:
-	setup_screen_texture();
+	draw();
 
-	// Draw the screen
-	temp_update();
 	glfwSwapBuffers(win);
 }
 
 
-void setup_screen_texture()
+
+// A temporary function where I can test out random code
+// FIXME: remove this
+void init()
 {
-	// If the window dimensions are invalid, stop
-	if (window_width <= 0 || window_height <= 0)
+	//=======================================================
+	// Creating Screen Image Texture
+	//=======================================================
+
+	// Allocating the memory for the screen texture
+	screen_texture = (unsigned char*)malloc(sizeof(unsigned char) * 4 * RAYTRACE_RENDER_WIDTH * RAYTRACE_RENDER_HEIGHT);
+
+	// Wiping the texture's memory contents
+	memset(screen_texture, 0, sizeof(char) * 4 * RAYTRACE_RENDER_WIDTH * RAYTRACE_RENDER_HEIGHT);
+
+	//==========================================
+	// Setting the texture to pink
+	// If on program execution, the texture is still pink, we know
+	// there was an error in the raytrace compute shader
+	//==========================================
+	for (int i = 0; i < RAYTRACE_RENDER_HEIGHT; i++)
 	{
-		printf("Error: Invalid window dimensions - ( %d x %d ).\n", window_width, window_height);
-		return;
-	}
-
-	// Don't let the internal window width / height exceed the max window width / height
-
-
-	// If the texture memory has not been allocated, allocate it
-	if (screen_texture == nullptr)
-	{
-		// Allocating the max amount of screen texture size that this program supports.
-		screen_texture = (unsigned char*)malloc(sizeof(unsigned char) * 3 * MAX_WINDOW_WIDTH * MAX_WINDOW_HEIGHT);
-	}
-
-	// Wiping the texture memory that we are using
-	//memset(screen_texture, 0, sizeof(char) * 3 * window_width * window_height);
-
-	//=================================================================
-	//TEMP - Filling the texture with a test gradient
-	//=================================================================
-	for (int i = 0; i < window_height; i++)
-	{
-		for (int j = 0; j < window_width; j++)
+		for (int j = 0; j < RAYTRACE_RENDER_WIDTH; j++)
 		{
-			float r = 255 - (j % 255);
-			float g = i % 255;
-			float b = 255;
-
-			// Adding a grid pattern every 10 pixels
-			if (i % 10 == 0 || j % 10 == 0)
-				r = g = b = 255;
-
-			screen_texture[i * window_width * 3 + j * 3 + 0] = (char)r;
-			screen_texture[i * window_width * 3 + j * 3 + 1] = (char)g;
-			screen_texture[i * window_width * 3 + j * 3 + 2] = (char)b;
+			screen_texture[i * RAYTRACE_RENDER_WIDTH * 4 + j * 4 + 0] = 250;
+			screen_texture[i * RAYTRACE_RENDER_WIDTH * 4 + j * 4 + 1] = 128;
+			screen_texture[i * RAYTRACE_RENDER_WIDTH * 4 + j * 4 + 2] = 255;
+			screen_texture[i * RAYTRACE_RENDER_WIDTH * 4 + j * 4 + 3] = 255;
 		}
 	}
-	//=================================================================
+	//==========================================
 
-	// If the texture exists in OpenGL, delete it.
-	if (glIsTexture(screen_texture_id) == GL_TRUE)
-	{
-		glDeleteTextures(1, &screen_texture_id);
-	}
 	// Create the OpenGL Texture
 	glGenTextures(1, &screen_texture_id);
-	printf("Creating a textur with ID: %d of size: %d x %d\n",screen_texture_id, window_width, window_height);
-
 	glBindTexture(GL_TEXTURE_2D, screen_texture_id);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, window_width, window_height, 0, GL_RGB, GL_UNSIGNED_BYTE, (const void *)screen_texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, RAYTRACE_RENDER_WIDTH, RAYTRACE_RENDER_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, (const void *)screen_texture);
 	glBindTexture(GL_TEXTURE_2D, 0);
-}
-
-// A temporary function where I can test out random code
-// FIXME: remove this
-void temp_init()
-{
-	//=======================================================
-	// Creating Screen Image Texture
-	//=======================================================
-	setup_screen_texture();
 	//=======================================================
 
 	//=======================================================
@@ -245,69 +187,37 @@ void temp_init()
 	//=======================================================
 
 	screen_quad_shader = Utils::createShaderProgram("draw_screen_vert.glsl", "draw_screen_frag.glsl");
-
-	// TODO: once I add compute shader source
-	//raytrace_compute_shader = Utils::createShaderProgram("test.glsl");
-
-
+	raytrace_compute_shader = Utils::createShaderProgram("raytrace_compute.glsl");
 }
 
 
 // A temporary function where I can setup update code
 // FIXME: remove this
-void temp_update()
+void draw()
 {
 	//=======================================================
 	// Calling the Raytrace shader
 	//=======================================================
 
+	// Bind the raytrace compute shader
+	glUseProgram(raytrace_compute_shader);
+
+	// Bind the screen_texture_id texture to an image unit as the compute shader's output
+	glBindImageTexture(0, screen_texture_id, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
+
+	// Execute the raytrace shader in WIDTH X HEIGHT X 1 groups of size (1 x 1 x 1)
+	glDispatchCompute(RAYTRACE_RENDER_WIDTH, RAYTRACE_RENDER_HEIGHT, 1);
 
 	//=======================================================
 	// Drawing the result texture to the screen
 	//=======================================================
-
-	// Increment the color
-	//static int color = 0;
-	//color = ++color >= 3 ? 0 : color;
-
-	/*switch (color)
-	{
-	case 0:
-		glClearColor(1, 0, 0, 1);
-		break;
-	case 1:
-		glClearColor(0, 1, 0, 1);
-		break;
-	case 2:
-		glClearColor(0, 0, 1, 1);
-		break;
-	default:
-		break;
-	}*/
 	glClear(0);
-
-
-	// Don't draw the quad to the screen if we don't have the texture
-	if (screen_texture == nullptr)
-	{
-		printf("Tried drawing with null texture - abort.\n");
-		return;
-	}
-
 	glUseProgram(screen_quad_shader);
-
-
 	// Binding the screen texture
 	glActiveTexture(0);
 	glBindTexture(GL_TEXTURE_2D, screen_texture_id);
-
-	//glBindTexture(GL_TEXTURE_2D, texture_id);
-	//GLint tex_loc = glGetUniformLocation(screen_quad_shader, "tex");
-	//glUniform1i(tex_loc, 0);
-
 	// Binding the vertex array object
 	glBindVertexArray(fullscreen_quad_vao);
-
 	// Binding the vertex position data
 	glBindBuffer(GL_ARRAY_BUFFER, fullscreen_quad_vbo[0]);
 	glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0);
