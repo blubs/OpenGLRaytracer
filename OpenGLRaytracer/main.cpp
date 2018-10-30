@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <chrono>
 #include <GL\glew.h>
 #include <GLFW\glfw3.h>
 #include <glm\glm.hpp>
@@ -25,7 +26,6 @@ GLuint screen_texture_id;
 unsigned char *screen_texture = nullptr;
 
 
-
 // The vertex array object for the fullscreen quad
 GLuint fullscreen_quad_vao;
 
@@ -36,6 +36,9 @@ GLuint fullscreen_quad_vbo[2];
 
 GLuint screen_quad_shader = 0;
 GLuint raytrace_compute_shader = 0;
+
+// The time (in seconds) that the program began at
+std::chrono::time_point<std::chrono::steady_clock> start_time;
 
 
 
@@ -102,10 +105,18 @@ void set_window_size_callback(GLFWwindow *win, int new_width, int new_height)
 	glfwSwapBuffers(win);
 }
 
+// Returns the current time in seconds
+float get_current_time()
+{
+	auto cur_time = std::chrono::high_resolution_clock::now();
+
+	long long elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(cur_time - start_time).count();
+
+	return elapsed_time / 1000.0f;
+}
 
 
-// A temporary function where I can test out random code
-// FIXME: remove this
+
 void init()
 {
 	//=======================================================
@@ -188,13 +199,17 @@ void init()
 
 	screen_quad_shader = Utils::createShaderProgram("draw_screen_vert.glsl", "draw_screen_frag.glsl");
 	raytrace_compute_shader = Utils::createShaderProgram("raytrace_compute.glsl");
+
+	// Storing the start time
+	start_time = std::chrono::high_resolution_clock::now();
 }
 
 
-// A temporary function where I can setup update code
-// FIXME: remove this
 void draw()
 {
+	// Getting the current time:
+	float cur_time = get_current_time();
+
 	//=======================================================
 	// Calling the Raytrace shader
 	//=======================================================
@@ -205,8 +220,14 @@ void draw()
 	// Bind the screen_texture_id texture to an image unit as the compute shader's output
 	glBindImageTexture(0, screen_texture_id, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
 
+	// Bind the current time to a shader parameter
+	glUniform1f(glGetUniformLocation(raytrace_compute_shader, "time"), cur_time);
+
 	// Execute the raytrace shader in WIDTH X HEIGHT X 1 groups of size (1 x 1 x 1)
 	glDispatchCompute(RAYTRACE_RENDER_WIDTH, RAYTRACE_RENDER_HEIGHT, 1);
+
+	// Wait until the compute shader has finished executing
+	glFinish();
 
 	//=======================================================
 	// Drawing the result texture to the screen
