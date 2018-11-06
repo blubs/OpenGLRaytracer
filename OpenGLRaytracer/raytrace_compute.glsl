@@ -22,6 +22,9 @@ struct Ray
 	// which computes and stores 1/dir in the ray, then functions can just use pre-computed value instead of dividing each time.
 };
 
+// Defining the null ray type
+Ray null_ray = {vec3(0.0), vec3(0.0)};
+
 struct Camera
 {
 	// The camera's world-space position
@@ -63,7 +66,7 @@ mat4 calc_projection_matrix(Camera c);
 //mat4 calc_projection_matrix(float t, float r, float b, float l, float n, float f);
 vec3 calc_view_ray(ivec2 pixel, int width, int height);
 mat4 calc_view_matrix(Camera c);
-vec3 raytrace(Ray r);
+vec3 raytrace(Ray r, int depth);
 
 // Defining the null object types
 Box null_box = { vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0) };
@@ -84,7 +87,7 @@ Object[] objects =
 		},
 		// Make the box bob up and down
 		vec3( 0.0, 0.0, sin(time * 3.0)),
-		vec3( 0.0, 0.0, 0.0),
+		vec3( 0.0, time * 90.0, 0.0),
 		vec3( 1.0, 0.0, 0.0)
 	},
 	{
@@ -110,7 +113,6 @@ Object[] objects =
 };
 
 int objects_count = 4;
-
 
 void main()
 {
@@ -185,7 +187,7 @@ void main()
 	// Intersecting the ray with objects
 	//========================================
 
-	vec3 color = raytrace(world_ray);
+	vec3 color = raytrace(world_ray,1);
 
 	//========================================
 
@@ -316,8 +318,19 @@ vec3 calc_view_ray(ivec2 pixel, int width, int height)
 	return normalize(vec3( x, 1.0, y));
 }
 
+struct Collision
+{
+	float t;
+	vec3 p;
+	vec3 n;
+};
 
-vec2 intersect_box_object(Ray r, Object o)
+// This defines what a null collision looks like
+Collision null_collision = { -1.0, vec3(0.0), vec3(0.0)};
+
+
+//FIXME - this is a duplicate function to alleviate the no recursion limitation
+Collision intersect_box_object(Ray r, Object o)
 {
 	// Compute the box's local-space to world-space transform matrix:
 	mat4 local_to_world = calc_transform_matrix(o.position,o.angles);
@@ -338,28 +351,69 @@ vec2 intersect_box_object(Ray r, Object o)
 	float t_near = max(max(t1.x,t1.y),t1.z);
 	float t_far = min(min(t2.x, t2.y), t2.z);
 
-	return vec2(t_near, t_far);
+	// intersects if t_near > 0 && t_near < t_far
+	//return vec2(t_near, t_far);
+
+	Collision c;
+
+	c.t = t_near;
+
+	// If the ray didn't intersect the box:
+	if(t_near >= t_far)
+	{
+		c.t = -1.0;
+		return c;
+	}
+
+	// Getting the face normal of the intersection:
+	int face_index = 0;
+	if(t_near == t1.y)
+		face_index = 1;
+	else if(t_near == t1.z)
+		face_index = 2;
+	c.n = vec3(0.0);
+	c.n[face_index] = 1.0;
+	// If we hit the box from the negative axis, invert the normal
+	if(ray_start[face_index] < 0.0)
+		c.n *= -1.0;
+	// Converting the normal to world-space
+	c.n = transpose(inverse(mat3(local_to_world))) * c.n;
+
+	// Calculate the world-position of the intersection:
+	c.p = (local_to_world * vec4(ray_start + t_near * ray_dir,1.0)).xyz;
+	// Recalculating c.t in world-space
+	//FIXME - this doesn't quite work
+	//c.t = length(c.p - r.start);
+
+
+	//TODO - We need to catch rays leaving the object too, 
+	// I beleive t_far may have the exit info,
+	// we if(t_near < 0.0), then  we run the face detection code on t_far and return that, inverting the normal (maybe)
+
+	return c;
 }
 
-vec3 raytrace(Ray r)
+vec3 raytrace2(Ray r, int depth)
 {
+	if(depth < 0)
+		return vec3(0.0);
+
 	float closest = 10000;
 	int closest_index = -1;
+	Collision closest_collision;
 
 	for(int i = 0; i < objects_count; i++)
 	{
-		float dist;
+		Collision c;
 		
 		// If the object is a box
 		if(objects[i].box != null_box)
 		{
-			vec2 lambda = intersect_box_object(r, objects[i]);
+			//vec2 lambda = intersect_box_object(r, objects[i]);
 			// If the ray intersects the box
-			if(lambda.x > 0.0 && lambda.x < lambda.y)
-			{
-				dist = lambda.x;
-			}
-			else 
+			//if(lambda.x > 0.0 && lambda.x < lambda.y)
+			c = intersect_box_object(r, objects[i]);
+			if(c.t <= 0.0)
 			{
 				continue;
 			}
@@ -373,16 +427,84 @@ vec3 raytrace(Ray r)
 			continue;
 		}
 
-		if(dist < closest)
+		if(c.t < closest)
 		{
-			closest = dist;
+			closest = c.t;
 			closest_index = i;
+			closest_collision = c;
 		}
 	}
 
 	if(closest_index != -1)
 	{
+		//return objects[closest_index].color;
+		//return closest_collision.n * 0.5 + vec3(0.5);
+		//return vec3(closest_collision.t / 100.0);
+		//return closest_collision.p / 10.0;
+		Ray bounce;
+		bounce.start = closest_collision.p;
+		bounce.dir = reflect(r.dir, closest_collision.n);
+	
+		//NOOOO - recursion is not allowed in GLSL....
 		return objects[closest_index].color;
+	}
+	return vec3(0.0,0.0,0.0);
+}
+
+vec3 raytrace(Ray r, int depth)
+{
+	if(depth < 0)
+		return vec3(0.0);
+
+	float closest = 10000;
+	int closest_index = -1;
+	Collision closest_collision;
+
+	for(int i = 0; i < objects_count; i++)
+	{
+		Collision c;
+		
+		// If the object is a box
+		if(objects[i].box != null_box)
+		{
+			//vec2 lambda = intersect_box_object(r, objects[i]);
+			// If the ray intersects the box
+			//if(lambda.x > 0.0 && lambda.x < lambda.y)
+			c = intersect_box_object(r, objects[i]);
+			if(c.t <= 0.0)
+			{
+				continue;
+			}
+		}
+		// If the object is a sphere
+		//else if(objects[i].sphere != null_sphere)
+		//TODO 
+		// etc...
+		else
+		{
+			continue;
+		}
+
+		if(c.t < closest)
+		{
+			closest = c.t;
+			closest_index = i;
+			closest_collision = c;
+		}
+	}
+
+	if(closest_index != -1)
+	{
+		//return objects[closest_index].color;
+		//return closest_collision.n * 0.5 + vec3(0.5);
+		//return vec3(closest_collision.t / 100.0);
+		//return closest_collision.p / 10.0;
+		Ray bounce;
+		bounce.start = closest_collision.p;
+		bounce.dir = reflect(r.dir, closest_collision.n);
+	
+		//NOOOO - recursion is not allowed in GLSL....
+		return ((objects[closest_index].color + raytrace2( bounce, depth - 1))) * 0.5;
 	}
 	return vec3(0.0,0.0,0.0);
 }
