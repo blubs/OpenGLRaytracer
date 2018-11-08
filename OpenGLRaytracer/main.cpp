@@ -16,8 +16,8 @@ int window_width = 600;
 int window_height = 400;
 
 // The resolution to render the raytrace at
-#define RAYTRACE_RENDER_WIDTH	1280
-#define RAYTRACE_RENDER_HEIGHT	720
+#define RAYTRACE_RENDER_WIDTH	640
+#define RAYTRACE_RENDER_HEIGHT	360
 
 
 // The texture ID of the fullscreen texture

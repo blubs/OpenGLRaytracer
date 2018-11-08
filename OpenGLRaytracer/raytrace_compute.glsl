@@ -10,6 +10,18 @@ uniform image2D output_texture;
 layout (local_size_x = 1, local_size_y = 1) in;
 
 
+const float PI = 3.14159265358;
+const float HALF_PI = PI * 0.5;
+const float TWO_PI = PI * 2;
+const float ROOT_TWO_PI = sqrt(TWO_PI);
+const float DEG_TO_RAD = PI / 180.0;
+const float RAD_TO_DEG = 180.0 / PI;
+
+
+// How many importance-sampling bounce passes to do per ray-surface collision
+const int IMPORTANCE_SAMPLING_SAMPLES = 1;
+
+
 struct Ray
 {
 	// The origin of the ray
@@ -67,6 +79,9 @@ mat4 calc_projection_matrix(Camera c);
 vec3 calc_view_ray(ivec2 pixel, int width, int height);
 mat4 calc_view_matrix(Camera c);
 vec3 raytrace(Ray r, int depth);
+float inv_cdf(float p);
+float gaussian_brdf(float theta_i, float theta_o, float r);
+
 
 // Defining the null object types
 Box null_box = { vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0) };
@@ -113,6 +128,8 @@ Object[] objects =
 };
 
 int objects_count = 4;
+
+vec3 recursive_raytrace();
 
 void main()
 {
@@ -189,6 +206,8 @@ void main()
 
 	vec3 color = raytrace(world_ray,1);
 
+	//color = recursive_raytrace();
+
 	//========================================
 
 	vec3 final_color = color;
@@ -200,9 +219,7 @@ void main()
 // c : the camera for which to compute the projection matrix
 mat4 calc_projection_matrix(Camera c)
 {
-	float deg_to_rad = 3.14159265358 / 180.0;
-
-	float q = 1.0 / tan(deg_to_rad * 0.5 * c.v_fov);
+	float q = 1.0 / tan(DEG_TO_RAD * 0.5 * c.v_fov);
 	float A = q / c.aspect;
 	float B = (c.near + c.far) / (c.near - c.far);
 	float C = (2.0 * c.near * c.far) / (c.near - c.far);
@@ -231,9 +248,8 @@ mat4 translation_matrix(vec3 t)
 // deg : the degrees to rotate by
 mat4 rotation_matrix_x(float deg)
 {
-	float deg_to_rad = 3.14159265358 / 180.0;
-	float cos_deg = cos(deg_to_rad * deg);
-	float sin_deg = sin(deg_to_rad * deg);
+	float cos_deg = cos(DEG_TO_RAD * deg);
+	float sin_deg = sin(DEG_TO_RAD * deg);
 	mat4 result = mat4(1.0);
 	result[1][1] = cos_deg;
 	result[1][2] = sin_deg;
@@ -246,9 +262,8 @@ mat4 rotation_matrix_x(float deg)
 // deg : the degrees to rotate by
 mat4 rotation_matrix_y(float deg)
 {
-	float deg_to_rad = 3.14159265358 / 180.0;
-	float cos_deg = cos(deg_to_rad * deg);
-	float sin_deg = sin(deg_to_rad * deg);
+	float cos_deg = cos(DEG_TO_RAD * deg);
+	float sin_deg = sin(DEG_TO_RAD * deg);
 	mat4 result = mat4(1.0);
 	result[0][0] = cos_deg;
 	result[0][2] = -sin_deg;
@@ -261,9 +276,8 @@ mat4 rotation_matrix_y(float deg)
 // deg : the degrees to rotate by
 mat4 rotation_matrix_z(float deg)
 {
-	float deg_to_rad = 3.14159265358 / 180.0;
-	float cos_deg = cos(deg_to_rad * deg);
-	float sin_deg = sin(deg_to_rad * deg);
+	float cos_deg = cos(DEG_TO_RAD * deg);
+	float sin_deg = sin(DEG_TO_RAD * deg);
 	mat4 result = mat4(1.0);
 	result[0][0] = cos_deg;
 	result[0][1] = sin_deg;
@@ -285,6 +299,23 @@ mat4 rotation_matrix(vec3 r)
 	result *= rotation_matrix_y(r.z);
 
 	return result;
+}
+
+// Computes a rotation matrix given a 3D rotation
+// angle radians about an arbitrary axis
+// angle : the rotation in radians
+// axis : the axis of rotation
+// Implementation found on:
+// http://www.neilmendoza.com/glsl-rotation-about-an-arbitrary-axis/
+mat3 rotation_matrix(vec3 axis, float angle)
+{
+	float s = -sin(angle);
+	float c = cos(angle);
+	float oc = 1.0 - c;
+	vec3 as = axis * s;
+	mat3 p = mat3(axis.x * axis, axis.y * axis, axis.z * axis);
+	mat3 q = mat3(c, -as.z, as.y, as.z, c, -as.x, -as.y, as.x, c);
+	return p * oc + q;
 }
 
 // Computes and returns a transformation matrix given position and angles
@@ -499,12 +530,293 @@ vec3 raytrace(Ray r, int depth)
 		//return closest_collision.n * 0.5 + vec3(0.5);
 		//return vec3(closest_collision.t / 100.0);
 		//return closest_collision.p / 10.0;
-		Ray bounce;
-		bounce.start = closest_collision.p;
-		bounce.dir = reflect(r.dir, closest_collision.n);
+		//Ray bounce;
+		//bounce.start = closest_collision.p;
+		//bounce.dir = reflect(r.dir, closest_collision.n);
 	
 		//NOOOO - recursion is not allowed in GLSL....
-		return ((objects[closest_index].color + raytrace2( bounce, depth - 1))) * 0.5;
+		// TODO - implement BRDF, importance-sample some number of rays about the reflected angle.
+
+
+		// what are the important rays?
+		// Should I do it at percentiles? (20,40,60,80,100)
+		// Should I just sample ever 30 degrees and then average the contribution?
+		//----------------------------------------------------------------------------
+		//				Sample IMPORTANCE_SAMPLING_SAMPLES times, 
+		//				use BRDF to modulate each ray's contribution
+		//----------------------------------------------------------------------------
+		// The angle between the incident ray and the surface normal
+		float theta_i = acos(dot( -r.dir, closest_collision.n));
+		
+		float percentile_width = 1.0 / (float(IMPORTANCE_SAMPLING_SAMPLES) + 1.0);
+
+		//float surface_roughness = mod(time * 0.1, 1.0);
+		float surface_roughness = 0.01;
+		vec3 color = vec3(0.0);
+
+		for(int j = 0; j < IMPORTANCE_SAMPLING_SAMPLES; j++)
+		{
+				// TODO - enable the following commented-out code block
+				float percentile = percentile_width	* float(j + 1);
+
+				// Calculate the z-score for this percentile
+				float z_score = inv_cdf(percentile);
+
+				// Convert the z-score to the BRDF Gaussian Distribution
+				// Make the contribution of the incident angle falloff as the surface 
+				// roughness approaches 1
+				float theta_o = z_score * surface_roughness + (theta_i * (1 - surface_roughness));
+
+				// Compute the intensity of this ray
+				float intensity = gaussian_brdf(theta_i, theta_o, surface_roughness);
+				
+				// Calculate the reflected ray
+				Ray bounce;
+				bounce.start = closest_collision.p;
+
+				//FIXME - this shouldn't be needed, I think my rotation code is wrong.
+				// Moving the start of the ray along the normal a tiny bit
+				//bounce.start -= closest_collision.n * 0.01;
+				// Get the reflected ray
+				
+
+				vec3 axis = normalize(cross( -r.dir, closest_collision.n));
+
+				bounce.dir = rotation_matrix(axis, theta_i) * closest_collision.n;
+
+				vec3 trace_color = raytrace2( bounce, depth - 1);
+
+				//======================================
+				// TEST : comparing this code to the single-bounce pass code
+				// The red and green components should match
+				//======================================
+				// Getting the calced raytrace:
+				color.x += max(max(trace_color.x, trace_color.y), trace_color.z);
+
+				// Calculating the actual bounce
+				Ray baseline_bounce = {closest_collision.p, reflect(r.dir, closest_collision.n) };
+				vec3 baseline_col = raytrace2( baseline_bounce, depth - 1);
+				float baseline_val = max(max(baseline_col.x,baseline_col.y),baseline_col.z);
+				color.y += baseline_val;
+
+				//return bounce.dir * 0.5 + vec3(0.5);
+		}
+		return color + vec3(0.1,0.1,0.1);
+		//return (objects[closest_index].color + color) * 0.5;
+		//----------------------------------------------------------------------------
+		//return ((objects[closest_index].color + raytrace2( bounce, depth - 1))) * 0.5;
 	}
 	return vec3(0.0,0.0,0.0);
 }
+
+
+//==================================================================================================================
+// Bi-Directional Reflectance Distribution Function (BRDF)
+//==================================================================================================================
+
+//---------------------------------------------------------
+// The inverse of Cumulative Distribution Function 
+// for the Gaussian Normal Distribution Function
+//---------------------------------------------------------
+// This implementation is based on an approximation by 
+// Paul M. Voutier, as outlined in his paper: 
+// https://arxiv.org/abs/1002.0567
+//---------------------------------------------------------
+// This function takes a desired percentile as a parameter
+// and outputs a z-score corresponding to the x-coordinate 
+// on the standard gaussian function graph
+// p : the desired percentile whose z-score we want
+//---------------------------------------------------------
+float inv_cdf(float p) 
+{
+	// The central section
+	if(0.0465 <= p && p <= 0.9535)
+	{
+		float a[] =
+		{
+			1.246899760652504, 0.195740115269792,-0.652871358365296, 
+			0.155331081623168, -0.839293158122257
+		};
+		float q = p - 0.5;
+		float r = q * q;
+		return q * (a[0] + (((a[2] * r) + (a[1])) / ((r * r) + (a[4] * r) + (a[3]))));
+	}
+	// The left and right tail sections:
+	else
+	{
+		float b[] =
+		{
+			-1.000182518730158122,16.682320830719986527,4.120411523939115059,
+			0.029814187308200211,7.173787663925508066,8.759693508958633869
+		};
+		// A scaling factor I introduced for better results
+		float scale = 1.64;
+		// If we're dealing with the right-tail section, invert p
+		if(p > 0.5)
+		{
+			p = p - 1.0;
+			scale *= -1.0;
+		}
+		float q = sqrt(log(1.0 / (p * p)));
+		return scale * (b[0] * q) + (b[3]) + (((b[2] * q) + (b[1])) / ((q * q) + (b[5] * q) + (b[4])));
+	}
+}
+//---------------------------------------------------------
+
+//---------------------------------------------------------
+// The Gaussian Function based BRDF
+//---------------------------------------------------------
+// This implementation is based on the simple gaussian formula
+// with standard deviation r and mean of theta_i
+//---------------------------------------------------------
+// This implementation is modified to have the mean tend to 0
+// as the roughness approaches 1
+//---------------------------------------------------------
+// Takes as a parameter the surface roughness, incident 
+// and outgoing (reflected) angles and outputs the 
+// intensity of the ray from 0 to 1
+// theta_i : the angle of the incident ray [0,pi/2]
+// theta_o : the angle of the reflected ray [-pi/2, pi/2]
+// r : the surface roughness (0,1]
+//---------------------------------------------------------
+float gaussian_brdf(float theta_i, float theta_o, float r)
+{
+	float inv_r = 1.0 / r;
+	// Make the theta_i contribution tend to 0 as r tends to 1
+	float a = theta_o - (theta_i * (1 - r));
+	float exponent = -0.5 * inv_r * inv_r * a * a;
+	return inv_r * (1.0 / ROOT_TWO_PI) * exp(exponent);
+}
+//---------------------------------------------------------
+
+//==================================================================================================================
+
+//==================================================================================================================
+// Recursive Raytrace Code
+//==================================================================================================================
+struct Raytrace_Stack_Element
+{
+	// Function Call Parameters
+	Ray r;
+	int depth;
+
+	// Function State Parameters
+	Collision c;
+
+	// TODO - somehow reference the line of code that added this stack element to the stack 
+	// ( we need to know what portion / line of code in the calling stack element to return to)
+	int return_address;
+	// The index of the calling stack entry
+	int return_address_index;
+};
+
+// Defining the null raytrace_stack_element
+Raytrace_Stack_Element null_raytrace_stack_element = { null_ray, -1, null_collision, -1, -1};
+
+
+Raytrace_Stack_Element stack[100];
+int stack_capacity = 100;
+
+// Index of the last element written into the stack
+int stack_pointer = -1;
+
+
+
+
+
+// Adds a recursive raytrace call to our stack
+// returns false if the stack is full.
+// return_address : the index of the calling element (is -1 for the first call)
+bool schedule_recursive_raytrace(Ray r, int depth, int return_address)
+{
+	if(stack_pointer >= stack_capacity - 1)
+		return false;
+
+	stack_pointer++;
+
+	stack[stack_pointer].r = r;
+	stack[stack_pointer].depth = depth;
+	stack[stack_pointer].return_address = return_address;
+	
+	return true;
+}
+
+
+// A test recursive function
+void test_func(Ray r, int depth)
+{
+	if(depth >= 1)
+		return;
+
+	// Pushing a new stack_element to the stack
+	schedule_recursive_raytrace(r,depth + 1, -1);
+}
+
+// This function emulates recursive calls to raytrace:
+//FIXME - should be void
+vec3 recursive_raytrace()
+{
+		//TODO - need to iterate through the stack
+		// until we hit a stack overflow
+		// or until the stack is empty
+
+		// The current process we are running
+		//int program_counter = 0;
+
+		// Starting the first call:
+		//stack[0].r = null_ray;
+		//stack[0].c = null_collision;
+		stack[0].depth = 0;
+		//stack[0].return_address = -1;
+		//stack[0].return_address_index = -1;
+
+		stack_pointer = 0;
+
+		int val = 0;
+
+		// While the stack is not empty:
+		while(stack_pointer >= 0)
+		{
+			// Getting the current stack_element from the stack to execute:
+			Raytrace_Stack_Element stack_element = stack[stack_pointer];
+			
+			// Execute the stack_element
+			test_func(stack_element.r, stack_element.depth);
+			//TODO - if the call added a new raytrace stack, we need to continue this loop:
+			if(stack_element.depth < 1)
+				continue;
+			
+			// FIXME- but now when we get back to the first function, it calls again...
+			val++;
+
+			// Popping the current stack_element
+			stack[stack_pointer] = null_raytrace_stack_element;
+
+			// Decrementing the program_counter
+			stack_pointer--;
+		}
+
+		// We want to debug how many runs are being executed:
+		vec3 colors[] = {vec3(0.0), vec3(0.5,0,0), vec3(1,0,0), vec3(0,0.5,0), vec3(0,1,0), vec3(0,0,0.5), vec3(0,0,1)};
+
+		if(val > 6)
+			val = 6;
+
+		return colors[val];
+	
+		// while we have a function 
+
+
+		//pseudo-code
+		//while(!stack is empty)
+		//{
+		//		pull process the element at the stack pointer
+		//		if that element adds another stack entry, repeat
+		//		else, 
+		//			get its return value, 
+		//			if no calling stack entry, 
+		//				terminate
+		//			return to calling stack entry and repeat
+		//}
+}
+//==================================================================================================================
