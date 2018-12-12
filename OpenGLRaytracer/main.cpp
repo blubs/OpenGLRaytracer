@@ -12,12 +12,15 @@ void set_window_size_callback(GLFWwindow *win, int new_width, int new_height);
 void draw();
 void init();
 
-int window_width = 600;
-int window_height = 400;
-
 // The resolution to render the raytrace at
-#define RAYTRACE_RENDER_WIDTH	640
-#define RAYTRACE_RENDER_HEIGHT	360
+
+
+#define RES_SCALE 0.4
+#define RAYTRACE_RENDER_WIDTH	(int)(1280 * RES_SCALE)
+#define RAYTRACE_RENDER_HEIGHT	(int)(720 * RES_SCALE)
+
+int window_width = RAYTRACE_RENDER_WIDTH;//600
+int window_height = RAYTRACE_RENDER_HEIGHT;//400
 
 
 // The texture ID of the fullscreen texture
@@ -224,7 +227,15 @@ void draw()
 	glUniform1f(glGetUniformLocation(raytrace_compute_shader, "time"), cur_time);
 
 	// Execute the raytrace shader in WIDTH X HEIGHT X 1 groups of size (1 x 1 x 1)
-	glDispatchCompute(RAYTRACE_RENDER_WIDTH, RAYTRACE_RENDER_HEIGHT, 1);
+	int pixelsPerGroup = 1;
+
+
+
+	int workGroupsX = RAYTRACE_RENDER_WIDTH;
+	int workGroupsY = RAYTRACE_RENDER_HEIGHT;
+	int workGroupsZ = 1;
+
+	glDispatchCompute(workGroupsX, workGroupsY, workGroupsZ);
 
 	// Wait until the compute shader has finished executing
 	glFinish();

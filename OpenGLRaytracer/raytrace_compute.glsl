@@ -9,7 +9,6 @@ uniform image2D output_texture;
 // Each group runs on one pixel
 layout (local_size_x = 1, local_size_y = 1) in;
 
-
 const float PI = 3.14159265358;
 const float HALF_PI = PI * 0.5;
 const float TWO_PI = PI * 2;
@@ -19,7 +18,7 @@ const float RAD_TO_DEG = 180.0 / PI;
 
 
 // How many importance-sampling bounce passes to do per ray-surface collision
-const int IMPORTANCE_SAMPLING_SAMPLES = 1;
+const int IMPORTANCE_SAMPLING_SAMPLES = 60;
 
 
 struct Ray
@@ -81,10 +80,18 @@ mat4 calc_view_matrix(Camera c);
 vec3 raytrace(Ray r, int depth);
 float inv_cdf(float p);
 float gaussian_brdf(float theta_i, float theta_o, float r);
+float rand(vec2 st);
+float rand_in_range( vec2 st, float min_v, float max_v);
 
 
 // Defining the null object types
 Box null_box = { vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0) };
+
+// How much to scale the box movements by
+float time_scale = 0.4;
+
+
+float scaled_time = time * time_scale;
 
 
 Object[] objects =
@@ -97,12 +104,12 @@ Object[] objects =
 	},
 	{
 		{
-			vec3(-1.0,-1.0,-1.0),
-			vec3( 1.0, 1.0, 1.0)
+			vec3(-1.0,-1.0,-1.0) * (0.5*sin(scaled_time * 0.5) + 1.5),
+			vec3( 1.0, 1.0, 1.0) * (0.5*sin(scaled_time * 0.5) + 1.5)
 		},
 		// Make the box bob up and down
-		vec3( 0.0, 0.0, sin(time * 3.0)),
-		vec3( 0.0, time * 90.0, 0.0),
+		vec3( 0.0, 0.0, sin(scaled_time * 3.0)),
+		vec3( 0.0, scaled_time * 90.0, 0.0),
 		vec3( 1.0, 0.0, 0.0)
 	},
 	{
@@ -112,7 +119,7 @@ Object[] objects =
 		},
 		vec3( 0.0, 0.0,-3.0),
 		// Make the box lean from one side to the other
-		vec3( sin(time * 5.0) * 10.0, 45.0, 0.0),
+		vec3( sin(scaled_time * 5.0) * 10.0, 45.0, 0.0),
 		vec3( 0.0, 1.0, 0.0)
 	},
 	{
@@ -122,7 +129,7 @@ Object[] objects =
 		},
 		vec3( 3.0, 4.0, 4.0),
 		// Make the box tumble in the air
-		vec3( 45.0 + time * 45.0, 0.0, 45.0 + time * 180.0),
+		vec3( 45.0 + scaled_time * 45.0, 0.0, 45.0 + scaled_time * 180.0),
 		vec3( 0.0, 0.0, 1.0)
 	},
 };
@@ -137,6 +144,9 @@ void main()
 	int height = int(gl_NumWorkGroups.y);
 	ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
 
+	if(pixel.x >= 512 || pixel.y >= 288)
+		return;
+
 	//========================================
 	// Defining the view's camera
 	//========================================
@@ -146,10 +156,10 @@ void main()
 
 	// Making the camera orbit the origin
 	float radius = 10.0;
-	float speed = time * 1.0;
 
 	c.position = vec3(0.0, -radius, 0.0);
-	// Make the camera orbit the origin
+	// Move the camera with time
+	float speed = time * time_scale + 0.5;
 	c.position = vec3(radius * cos(speed), radius * sin(speed), 0);
 	
 	float pitch = 0.0;
@@ -162,8 +172,11 @@ void main()
 	yaw = mod(1.0 * speed * (180.0/3.1416), 360.0) + 90.0;
 	// Enable this line to make the camera roll around
 	//roll = mod(0.5 * speed * (180.0/3.1416), 360.0);
+	
+	// Apply the camera angles
 	c.angles = vec3(pitch,yaw,roll);
 
+	// Set up the camera's view frustum
 	c.near = 0.1;
 	c.far = 1000;
 	c.aspect = 16.0/9.0;
@@ -179,7 +192,7 @@ void main()
 	// Getting this pixel's world-space ray
 	//========================================
 
-	// Constructing the ray in view-space
+	// Calculating the ray in view-space
 	float view_ray_x = float(pixel.x - width/2) / float(width/2);
 	float view_ray_y = float(pixel.y - height/2) / float(height/2);
 	vec4 view_ray_start = vec4( view_ray_x, view_ray_y, 0.5, 1.0);
@@ -192,7 +205,6 @@ void main()
 	vec4 world_ray_end = inverse_proj_mat * view_ray_end;
 	world_ray_end /= world_ray_end.w;
 
-
 	// Constructing the world-space-ray	
 	Ray world_ray;
 	world_ray.start = c.position;
@@ -201,12 +213,17 @@ void main()
 
 
 	//========================================
-	// Intersecting the ray with objects
+	// Casting the ray out into the world
+	// and Intersecting the ray with objects
 	//========================================
 
 	vec3 color = raytrace(world_ray,1);
 
 	//color = recursive_raytrace();
+
+	//========================================
+	// RNG Test Function
+	//========================================
 
 	//========================================
 
@@ -548,61 +565,183 @@ vec3 raytrace(Ray r, int depth)
 		// The angle between the incident ray and the surface normal
 		float theta_i = acos(dot( -r.dir, closest_collision.n));
 		
-		float percentile_width = 1.0 / (float(IMPORTANCE_SAMPLING_SAMPLES) + 1.0);
 
 		//float surface_roughness = mod(time * 0.1, 1.0);
-		float surface_roughness = 0.01;
+		float surface_roughness = sin(time * 0.5) * 0.5 + 0.501;
+		surface_roughness = 1.0;
+		//surface_roughness = 0.001;
+		//surface_roughness = 0.3;
 		vec3 color = vec3(0.0);
+
+		// How much intensity each pass contributed
+		// Use to scale the output so that the the total intensity does not exceed 1.0
+		float total_intensity = 0.0;
+
+		
+		/*float percentile_width = 1.0 / (float(IMPORTANCE_SAMPLING_SAMPLES) + 1.0);
+		//------------ Dithering Precomputations ------------
+//		float phi_dither = percentile_width * PI;
+//		vec2 phi_prng_seed = r.start.xz * r.dir.xz;
+//		float phi_dither_percent = rand(phi_prng_seed);
+//		phi_dither *= (phi_dither_percent > 0.5 ? 1.0 : -1.0);
+//
+//		float theta_dither = percentile_width * HALF_PI;
+//		vec2 theta_prng_seed = r.start.xy * r.dir.xy;
+//		float theta_dither_percent = rand(theta_prng_seed);
+//		theta_dither *= (theta_dither_percent > 0.5 ? 1.0 : -1.0);
+		//---------------------------------------------------
+
+		const float dither_strength = sin(time * 0.5) * 0.5 + 0.501;;
 
 		for(int j = 0; j < IMPORTANCE_SAMPLING_SAMPLES; j++)
 		{
-				// TODO - enable the following commented-out code block
-				float percentile = percentile_width	* float(j + 1);
+				float phi_percentile = percentile_width	* float(j + 1);
+				
+
+				for(int k = 0; k < IMPORTANCE_SAMPLING_SAMPLES; k++)
+				{
+					// All of this can be moved above:
+					//====================================
+					// Dithering
+					float phi_dither = percentile_width * PI;
+					vec2 phi_prng_seed = r.start.xz * r.dir.xz * ((j+1)*(k+1) / IMPORTANCE_SAMPLING_SAMPLES);
+					float phi_dither_percent = rand(phi_prng_seed);
+					phi_dither *= dither_strength*(phi_dither_percent > 0.5 ? 1.0 : -1.0);
+
+					phi_percentile += phi_dither;
+
+					// Calculate the z-score for this percentile
+					float phi_z_score = inv_cdf(phi_percentile);
+
+					// Calculate phi (the angle that the outbound ray is rotated ABOUT the normal)
+					// centered at 0, with standard deviation at pi * surface_roughness
+					float phi_o = phi_z_score * PI * surface_roughness;
+					//====================================
+
+
+					float theta_percentile = percentile_width * float(j + 1);
+					// Dithering
+					float theta_dither = percentile_width * HALF_PI;
+					vec2 theta_prng_seed = r.start.xy * r.dir.xy * ((j+1)*(k+1) / IMPORTANCE_SAMPLING_SAMPLES);
+					float theta_dither_percent = rand(theta_prng_seed);
+					theta_dither *= dither_strength*(theta_dither_percent > 0.5 ? 1.0 : -1.0);
+					
+					theta_percentile += theta_dither;
+
+
+
+					// Calculate the z-score for this percentile
+					float theta_z_score = inv_cdf(theta_percentile);
+
+
+					// Convert the z-score to the BRDF Gaussian Distribution
+					// Make the contribution of the incident angle falloff as the surface 
+					// roughness approaches 1
+					// Calculate theta (the angle the outbound ray makes with the normal)
+					float theta_o = theta_z_score * surface_roughness + (theta_i * (1 - surface_roughness));
+
+
+					//-------------- Dithering ----------------
+					//theta_o += theta_dither;
+					//phi_o += phi_dither;
+					//-----------------------------------------
+					
+					// Compute the intensity of this ray
+					float intensity = gaussian_brdf(theta_i, theta_o, surface_roughness);
+					total_intensity += intensity;
+				
+					// Calculate the reflected ray
+					Ray bounce;
+					bounce.start = closest_collision.p;
+					vec3 axis = normalize(cross( -r.dir, closest_collision.n));
+					bounce.dir = rotation_matrix(closest_collision.n, phi_o) * rotation_matrix(axis, theta_o) * closest_collision.n;
+
+
+					color += raytrace2( bounce, depth - 1) * intensity;
+					//======================================
+					// TEST : comparing this code to the single-bounce pass code
+					// The red and green components should match
+					//======================================
+//					vec3 trace_color = raytrace2( bounce, depth - 1);
+					// Getting the calced raytrace:
+//					color.x += max(max(trace_color.x, trace_color.y), trace_color.z);
+//					// Calculating the actual bounce
+//					Ray baseline_bounce = {closest_collision.p, reflect(r.dir, closest_collision.n) };
+//					vec3 baseline_col = raytrace2( baseline_bounce, depth - 1);
+//					float baseline_val = max(max(baseline_col.x,baseline_col.y),baseline_col.z);
+//					color.y += baseline_val;
+
+					//return bounce.dir * 0.5 + vec3(0.5);
+				}
+		}*/
+
+		// Random importance sampling:
+		int additional_rays = 0;
+		for(int j = 0; j < IMPORTANCE_SAMPLING_SAMPLES; j++)
+		{
+				//------------ Calculating Phi -------------
+				// Coming up with a seed that's unique per ray, per pass
+				vec2 phi_prng_seed = r.start.xz * r.dir.xz * (j + 1 + additional_rays) / IMPORTANCE_SAMPLING_SAMPLES;
+				// Choosing a random percentile to use for this ray's phi angle
+				float phi_percentile = rand_in_range(phi_prng_seed, 0.01, 0.99);
 
 				// Calculate the z-score for this percentile
-				float z_score = inv_cdf(percentile);
+				float phi_z_score = inv_cdf(phi_percentile);
+
+				// Calculate phi (the angle that the outbound ray is rotated ABOUT the normal)
+				// centered at 0, with standard deviation at pi * surface_roughness
+				float phi_o = phi_z_score * PI * surface_roughness;
+				//------------------------------------------
+
+				//------------ Calculating Theta -------------
+				// Coming up with a seed that's unique per ray, per pass
+				vec2 theta_prng_seed = r.start.xy * r.dir.xy * (j + 1 + additional_rays) / IMPORTANCE_SAMPLING_SAMPLES;
+				
+				// Choosing a random percentile to use for this ray's theta angle
+				float theta_percentile = rand_in_range(theta_prng_seed, 0.01, 0.99);
+
+				// Calculate the z-score for this percentile
+				float theta_z_score = inv_cdf(theta_percentile);
 
 				// Convert the z-score to the BRDF Gaussian Distribution
-				// Make the contribution of the incident angle falloff as the surface 
-				// roughness approaches 1
-				float theta_o = z_score * surface_roughness + (theta_i * (1 - surface_roughness));
+				// Make the contribution of the incident angle falloff as the surface roughness approaches 1
+				// Calculate theta (the angle the outbound ray makes with the normal)
+				float theta_o = theta_z_score * surface_roughness + (theta_i * (1 - surface_roughness));
+				//------------------------------------------
 
+				// Test - Seeing what RNG values we're getting
+				//return vec3(phi_percentile,theta_percentile,0.0);
+				//return vec3(phi_percentile);
+
+				// Test not using BRDF-based importance sampling
+				//phi_o = (phi_percentile * 2.0 - 1.0) * PI * surface_roughness;
+				//theta_o = (theta_percentile * 2.0 - 1.0) * surface_roughness + (theta_i * (1 - surface_roughness));
+					
 				// Compute the intensity of this ray
 				float intensity = gaussian_brdf(theta_i, theta_o, surface_roughness);
+				total_intensity += intensity;
+
 				
 				// Calculate the reflected ray
 				Ray bounce;
 				bounce.start = closest_collision.p;
-
-				//FIXME - this shouldn't be needed, I think my rotation code is wrong.
-				// Moving the start of the ray along the normal a tiny bit
-				//bounce.start -= closest_collision.n * 0.01;
-				// Get the reflected ray
-				
-
 				vec3 axis = normalize(cross( -r.dir, closest_collision.n));
+				bounce.dir = rotation_matrix(closest_collision.n, phi_o) * rotation_matrix(axis, theta_o) * closest_collision.n;
 
-				bounce.dir = rotation_matrix(axis, theta_i) * closest_collision.n;
+				color += raytrace2( bounce, depth - 1) * intensity;
 
-				vec3 trace_color = raytrace2( bounce, depth - 1);
-
-				//======================================
-				// TEST : comparing this code to the single-bounce pass code
-				// The red and green components should match
-				//======================================
-				// Getting the calced raytrace:
-				color.x += max(max(trace_color.x, trace_color.y), trace_color.z);
-
-				// Calculating the actual bounce
-				Ray baseline_bounce = {closest_collision.p, reflect(r.dir, closest_collision.n) };
-				vec3 baseline_col = raytrace2( baseline_bounce, depth - 1);
-				float baseline_val = max(max(baseline_col.x,baseline_col.y),baseline_col.z);
-				color.y += baseline_val;
-
-				//return bounce.dir * 0.5 + vec3(0.5);
+				// If the pixel's color value is low, 
+				// allow the ray the chance to cast additional rays
+				if( rand(r.start.xy * r.dir.xz * (additional_rays + 1) ) - 0.02 > dot(color,color)/total_intensity )
+				{
+					additional_rays++;
+					j--;
+				}
 		}
-		return color + vec3(0.1,0.1,0.1);
-		//return (objects[closest_index].color + color) * 0.5;
+		return color / total_intensity + vec3(0.05,0.05,0.05);
+		// Dividing color by total intensity to ensure 
+		color /= total_intensity;
+		//return (objects[closest_index].color + color);
 		//----------------------------------------------------------------------------
 		//return ((objects[closest_index].color + raytrace2( bounce, depth - 1))) * 0.5;
 	}
@@ -615,7 +754,7 @@ vec3 raytrace(Ray r, int depth)
 //==================================================================================================================
 
 //---------------------------------------------------------
-// The inverse of Cumulative Distribution Function 
+// The inverse of the Cumulative Distribution Function 
 // for the Gaussian Normal Distribution Function
 //---------------------------------------------------------
 // This implementation is based on an approximation by 
@@ -669,8 +808,12 @@ float inv_cdf(float p)
 // This implementation is based on the simple gaussian formula
 // with standard deviation r and mean of theta_i
 //---------------------------------------------------------
-// This implementation is modified to have the mean tend to 0
-// as the roughness approaches 1
+// This implementation is modified to have the mean tend 
+// to 0 as the roughness approaches 1
+//---------------------------------------------------------
+// This is done to simulate the the importance of the 
+// angle of the incident ray tends to decrease as the 
+// surface approaches a perfect diffuser
 //---------------------------------------------------------
 // Takes as a parameter the surface roughness, incident 
 // and outgoing (reflected) angles and outputs the 
@@ -686,6 +829,46 @@ float gaussian_brdf(float theta_i, float theta_o, float r)
 	float a = theta_o - (theta_i * (1 - r));
 	float exponent = -0.5 * inv_r * inv_r * a * a;
 	return inv_r * (1.0 / ROOT_TWO_PI) * exp(exponent);
+}
+//---------------------------------------------------------
+
+//---------------------------------------------------------
+// Pseudo Random Number Generator
+//---------------------------------------------------------
+// This implementation can be found on
+// https://thebookofshaders.com/10/
+//---------------------------------------------------------
+// Returns a uniformly distributed random number in [0,1)
+// given seeds s and t as a vec2
+//---------------------------------------------------------
+float rand(vec2 st)
+{
+	// Suggested values:
+	//const float a = 12.9898;
+	//const float b = 78.233;
+	//const float c = 43758.5453123;
+
+	// Using my own custom values that seem to give a more uniform distribution:
+	// NOTE: a histogram of the PRNG with these values shows a small spike near the 
+	// 50th - 60th percentile, but this spike isn't significant enough to skew our results
+	const float a = 51.3259;
+	const float b = 75.152;
+	const float c = 4087.62;
+
+	return fract(sin(dot(st, vec2(a, b))) * c);
+}
+//---------------------------------------------------------
+
+//---------------------------------------------------------
+// ranged-Pseudo Random Number Generator
+//---------------------------------------------------------
+// Returns a uniformly distributed random number  
+// in [min_v,max_v), given seeds s and t as a vec2
+//---------------------------------------------------------
+// Returns a random number between min_v and max_v
+float rand_in_range( vec2 st, float min_v, float max_v)
+{
+	return min_v + (rand(st) * (max_v - min_v));
 }
 //---------------------------------------------------------
 
