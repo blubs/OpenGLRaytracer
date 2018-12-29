@@ -70,8 +70,13 @@ struct Object
 	vec3 angles;
 	// The surface color of the object
 	vec3 color;
+	// The surface opacity of the object
+	// 0.0 = fully transparent
+	// 1.0 = fully opaque
+	float opacity;
+	// The index of refraction of the object
+	float index_of_refraction;
 };
-
 
 mat4 calc_projection_matrix(Camera c);
 //mat4 calc_projection_matrix(float t, float r, float b, float l, float n, float f);
@@ -93,44 +98,57 @@ float time_scale = 0.4;
 
 float scaled_time = time * time_scale;
 
+// The index of refraction of open space
+const float air_index_of_refraction = 1.0;
+
+
+const float glass_index_of_refraction = 1.33;
 
 Object[] objects =
 {
 	{
-		null_box,
-		vec3( 0.0, 0.0, 0.0),
-		vec3( 0.0, 0.0, 0.0),
-		vec3( 1.0, 0.0, 0.0)
+		null_box,															// Bounding Box
+		vec3( 0.0, 0.0, 0.0),												// Position
+		vec3( 0.0, 0.0, 0.0),												// Rotation
+		vec3( 1.0, 0.0, 0.0),												// Color
+		0.7,																// Opacity
+		glass_index_of_refraction											// Index of refraction
 	},
 	{
 		{
-			vec3(-1.0,-1.0,-1.0) * (0.5*sin(scaled_time * 0.5) + 1.5),
-			vec3( 1.0, 1.0, 1.0) * (0.5*sin(scaled_time * 0.5) + 1.5)
+			vec3(-1.0,-1.0,-1.0) * (0.5*sin(scaled_time * 0.5) + 1.5),		// Bounding Box Mins
+			vec3( 1.0, 1.0, 1.0) * (0.5*sin(scaled_time * 0.5) + 1.5)		// Bounding Box Maxs
 		},
 		// Make the box bob up and down
-		vec3( 0.0, 0.0, sin(scaled_time * 3.0)),
-		vec3( 0.0, scaled_time * 90.0, 0.0),
-		vec3( 1.0, 0.0, 0.0)
+		vec3( 0.0, 0.0, sin(scaled_time * 3.0)),							// Position
+		vec3( 0.0, scaled_time * 90.0, 0.0),								// Rotation
+		vec3( 1.0, 0.0, 0.0),												// Color
+		0.7,																// Opacity
+		glass_index_of_refraction											// Index of refraction
 	},
 	{
 		{
-			vec3(-10.0,-10.0,-1.0),
-			vec3( 10.0, 10.0, 1.0)
+			vec3(-10.0,-10.0,-1.0),											// Bounding Box Mins
+			vec3( 10.0, 10.0, 1.0)											// Bounding Box Maxs
 		},
-		vec3( 0.0, 0.0,-3.0),
+		vec3( 0.0, 0.0,-3.0),												// Position
 		// Make the box lean from one side to the other
-		vec3( sin(scaled_time * 5.0) * 10.0, 45.0, 0.0),
-		vec3( 0.0, 1.0, 0.0)
+		vec3( sin(scaled_time * 5.0) * 10.0, 45.0, 0.0),					// Rotation
+		vec3( 0.0, 1.0, 0.0),												// Color
+		0.7,																// Opacity
+		glass_index_of_refraction											// Index of refraction
 	},
 	{
 		{
-			vec3(-1.0,-1.0,-2.0),
-			vec3( 1.0, 1.0, 2.0)
+			vec3(-1.0,-1.0,-2.0),											// Bounding Box Mins
+			vec3( 1.0, 1.0, 2.0)											// Bounding Box Maxs
 		},
-		vec3( 3.0, 4.0, 4.0),
+		vec3( 3.0, 4.0, 1.0),												// Position (3,4,4)
 		// Make the box tumble in the air
-		vec3( 45.0 + scaled_time * 45.0, 0.0, 45.0 + scaled_time * 180.0),
-		vec3( 0.0, 0.0, 1.0)
+		vec3( 45.0 + scaled_time * 45.0, 0.0, 45.0 + scaled_time * 180.0),	// Rotation
+		vec3( 0.0, 0.0, 1.0),												// Color
+		0.7,																// Opacity
+		glass_index_of_refraction											// Index of refraction
 	},
 };
 
@@ -217,9 +235,9 @@ void main()
 	// and Intersecting the ray with objects
 	//========================================
 
-	//vec3 color = raytrace(world_ray,1);
+	vec3 color = raytrace(world_ray,4);
 
-	vec3 color = recursive_raytrace();
+	//vec3 color = recursive_raytrace();
 
 	//========================================
 	// RNG Test Function
@@ -368,16 +386,20 @@ vec3 calc_view_ray(ivec2 pixel, int width, int height)
 
 struct Collision
 {
+	// The t-value at which this collision occurs for a ray
 	float t;
+	// The world position of the collision
 	vec3 p;
+	// The normal of the collision
 	vec3 n;
+	// Whether the collision occurs inside of the object
+	bool inside;
 };
 
 // This defines what a null collision looks like
-Collision null_collision = { -1.0, vec3(0.0), vec3(0.0)};
+Collision null_collision = { -1.0, vec3(0.0), vec3(0.0), false};
 
 
-//FIXME - this is a duplicate function to alleviate the no recursion limitation
 Collision intersect_box_object(Ray r, Object o)
 {
 	// Compute the box's local-space to world-space transform matrix:
@@ -405,43 +427,67 @@ Collision intersect_box_object(Ray r, Object o)
 	Collision c;
 
 	c.t = t_near;
+	c.inside = false;
+
+	
+	// If the ray is entering the box
+	// t_near contains the farthest boundary of entry
+	// If the ray is leaving the box
+	// t_far contains the closest boundary of exit
+	// The ray intersects the box if and only if t_near < t_far
+	// and if t_far > 0.0
 
 	// If the ray didn't intersect the box:
-	if(t_near >= t_far)
+	if(t_near >= t_far || t_far <= 0.0)
 	{
 		c.t = -1.0;
 		return c;
 	}
 
-	// Getting the face normal of the intersection:
+	float intersection = t_near;
+	vec3 boundary = t1;
+	float normal = 1.0;
+
+	// if t_near < 0, then the ray started inside the box and left the box
+	if( t_near < 0.0)
+	{
+		c.t = t_far;
+		intersection = t_far;
+		boundary = t2;
+		// FIXME - Should I flip the normal if we are inside?
+		//normal = -1.0;
+		c.inside = true;
+	}
+
+	// Checking which boundary the intersection lies on
 	int face_index = 0;
-	if(t_near == t1.y)
+
+	if(intersection == boundary.y)
 		face_index = 1;
-	else if(t_near == t1.z)
+	else if(intersection == boundary.z)
 		face_index = 2;
+
+	// Creating the collision normal
 	c.n = vec3(0.0);
-	c.n[face_index] = 1.0;
+	c.n[face_index] = normal;
+
+
 	// If we hit the box from the negative axis, invert the normal
-	if(ray_start[face_index] < 0.0)
+	if(ray_dir[face_index] > 0.0)
+	{
 		c.n *= -1.0;
+	}
+
 	// Converting the normal to world-space
 	c.n = transpose(inverse(mat3(local_to_world))) * c.n;
 
 	// Calculate the world-position of the intersection:
-	c.p = (local_to_world * vec4(ray_start + t_near * ray_dir,1.0)).xyz;
-	// Recalculating c.t in world-space
-	//FIXME - this doesn't quite work
-	//c.t = length(c.p - r.start);
-
-
-	//TODO - We need to catch rays leaving the object too, 
-	// I beleive t_far may have the exit info,
-	// we if(t_near < 0.0), then  we run the face detection code on t_far and return that, inverting the normal (maybe)
+	c.p = (local_to_world * vec4(ray_start + c.t * ray_dir,1.0)).xyz;
 
 	return c;
 }
 
-vec3 raytrace2(Ray r, int depth)
+vec3 raytrace3(Ray r, int depth)
 {
 	if(depth < 0)
 		return vec3(0.0);
@@ -485,16 +531,93 @@ vec3 raytrace2(Ray r, int depth)
 
 	if(closest_index != -1)
 	{
+		//return (vec3(closest_collision.t) / 10.0) * (objects[closest_index].color);
+		//if(closest_collision.inside) return vec3(1.0) - objects[closest_index].color;
+		return objects[closest_index].color;
+	}
+	return vec3(0.0,0.0,0.0);
+}
+
+//FIXME - this is a duplicate function to alleviate the no recursion limitation
+vec3 raytrace2(Ray r, int depth)
+{
+	if(depth < 0)
+		return vec3(0.0);
+
+	float closest = 10000;
+	int closest_index = -1;
+	Collision closest_collision;
+
+	for(int i = 0; i < objects_count; i++)
+	{
+		Collision c;
+		
+		// If the object is a box
+		if(objects[i].box != null_box)
+		{
+			//vec2 lambda = intersect_box_object(r, objects[i]);
+			// If the ray intersects the box
+			//if(lambda.x > 0.0 && lambda.x < lambda.y)
+			c = intersect_box_object(r, objects[i]);
+			if(c.t <= 0.0)
+			{
+				continue;
+			}
+		}
+		// If the object is a sphere
+		//else if(objects[i].sphere != null_sphere)
+		//TODO 
+		// etc...
+		else
+		{
+			continue;
+		}
+
+		if(c.t < closest)
+		{
+			closest = c.t;
+			closest_index = i;
+			closest_collision = c;
+		}
+	}
+
+	if(closest_index != -1)
+	{		
+		//return closest_collision.n * 0.5 + vec3(0.5);
 		//return objects[closest_index].color;
+
+		// Cast an additional ray through the object
+		//----------------------------------------------------------------------------
+		vec3 color = objects[closest_index].color;
+		Ray transparent_ray;
+		transparent_ray.start = closest_collision.p + (r.dir * 0.0001);
+		
+		// Calculating the ratio of indices of refraction
+		float refraction_ratio = 1.0;
+		// If the ray is leaving an object from inside
+		if(closest_collision.inside)
+		{
+			refraction_ratio = objects[closest_index].index_of_refraction / air_index_of_refraction;
+		}
+		else
+		{
+			refraction_ratio = air_index_of_refraction / objects[closest_index].index_of_refraction;
+		}
+		transparent_ray.dir = refract(r.dir, closest_collision.n, refraction_ratio);
+		//transparent_ray.dir = r.dir;
+
+
+		vec3 refracted_color = vec3(0.0);
+		//refracted_color += objects[closest_index].color;
+		refracted_color += raytrace3( transparent_ray, depth - 1);
+		//refracted_color *= 0.5;
+		//return vec3(closest_collision.t , refracted_color.g, refracted_color.b) / 10.0;
+		return refracted_color;
+		//----------------------------------------------------------------------------
+	
 		//return closest_collision.n * 0.5 + vec3(0.5);
 		//return vec3(closest_collision.t / 100.0);
 		//return closest_collision.p / 10.0;
-		Ray bounce;
-		bounce.start = closest_collision.p;
-		bounce.dir = reflect(r.dir, closest_collision.n);
-	
-		//NOOOO - recursion is not allowed in GLSL....
-		return objects[closest_index].color;
 	}
 	return vec3(0.0,0.0,0.0);
 }
@@ -542,208 +665,42 @@ vec3 raytrace(Ray r, int depth)
 	}
 
 	if(closest_index != -1)
-	{
+	{		
+		//return closest_collision.n * 0.5 + vec3(0.5);
 		//return objects[closest_index].color;
+
+		// Cast an additional ray through the object
+		//----------------------------------------------------------------------------
+		vec3 color = objects[closest_index].color;
+		Ray transparent_ray;
+		transparent_ray.start = closest_collision.p + r.dir * 0.0001;
+		
+		// Calculating the ratio of indices of refraction
+		float refraction_ratio = 1.0;
+		// If the ray is leaving an object from inside
+		if(closest_collision.inside)
+		{
+			refraction_ratio = objects[closest_index].index_of_refraction / air_index_of_refraction;
+		}
+		else
+		{
+			refraction_ratio = air_index_of_refraction / objects[closest_index].index_of_refraction;
+		}
+		transparent_ray.dir = refract(r.dir, closest_collision.n, refraction_ratio);
+		//transparent_ray.dir = r.dir;
+
+
+		vec3 refracted_color = vec3(0.0);
+		refracted_color += objects[closest_index].color;
+		refracted_color *= 0.5;
+		refracted_color += raytrace2( transparent_ray, depth - 1);
+		//return vec3(closest_collision.t , refracted_color.g, refracted_color.b) / 10.0;
+		return refracted_color;
+		//----------------------------------------------------------------------------
+	
 		//return closest_collision.n * 0.5 + vec3(0.5);
 		//return vec3(closest_collision.t / 100.0);
 		//return closest_collision.p / 10.0;
-		//Ray bounce;
-		//bounce.start = closest_collision.p;
-		//bounce.dir = reflect(r.dir, closest_collision.n);
-	
-		//NOOOO - recursion is not allowed in GLSL....
-		// TODO - implement BRDF, importance-sample some number of rays about the reflected angle.
-
-
-		// what are the important rays?
-		// Should I do it at percentiles? (20,40,60,80,100)
-		// Should I just sample ever 30 degrees and then average the contribution?
-		//----------------------------------------------------------------------------
-		//				Sample IMPORTANCE_SAMPLING_SAMPLES times, 
-		//				use BRDF to modulate each ray's contribution
-		//----------------------------------------------------------------------------
-		// The angle between the incident ray and the surface normal
-		float theta_i = acos(dot( -r.dir, closest_collision.n));
-		
-
-		//float surface_roughness = mod(time * 0.1, 1.0);
-		float surface_roughness = sin(time * 0.5) * 0.5 + 0.501;
-		surface_roughness = 1.0;
-		//surface_roughness = 0.001;
-		//surface_roughness = 0.3;
-		vec3 color = vec3(0.0);
-
-		// How much intensity each pass contributed
-		// Use to scale the output so that the the total intensity does not exceed 1.0
-		float total_intensity = 0.0;
-
-		
-		/*float percentile_width = 1.0 / (float(IMPORTANCE_SAMPLING_SAMPLES) + 1.0);
-		//------------ Dithering Precomputations ------------
-//		float phi_dither = percentile_width * PI;
-//		vec2 phi_prng_seed = r.start.xz * r.dir.xz;
-//		float phi_dither_percent = rand(phi_prng_seed);
-//		phi_dither *= (phi_dither_percent > 0.5 ? 1.0 : -1.0);
-//
-//		float theta_dither = percentile_width * HALF_PI;
-//		vec2 theta_prng_seed = r.start.xy * r.dir.xy;
-//		float theta_dither_percent = rand(theta_prng_seed);
-//		theta_dither *= (theta_dither_percent > 0.5 ? 1.0 : -1.0);
-		//---------------------------------------------------
-
-		const float dither_strength = sin(time * 0.5) * 0.5 + 0.501;;
-
-		for(int j = 0; j < IMPORTANCE_SAMPLING_SAMPLES; j++)
-		{
-				float phi_percentile = percentile_width	* float(j + 1);
-				
-
-				for(int k = 0; k < IMPORTANCE_SAMPLING_SAMPLES; k++)
-				{
-					// All of this can be moved above:
-					//====================================
-					// Dithering
-					float phi_dither = percentile_width * PI;
-					vec2 phi_prng_seed = r.start.xz * r.dir.xz * ((j+1)*(k+1) / IMPORTANCE_SAMPLING_SAMPLES);
-					float phi_dither_percent = rand(phi_prng_seed);
-					phi_dither *= dither_strength*(phi_dither_percent > 0.5 ? 1.0 : -1.0);
-
-					phi_percentile += phi_dither;
-
-					// Calculate the z-score for this percentile
-					float phi_z_score = inv_cdf(phi_percentile);
-
-					// Calculate phi (the angle that the outbound ray is rotated ABOUT the normal)
-					// centered at 0, with standard deviation at pi * surface_roughness
-					float phi_o = phi_z_score * PI * surface_roughness;
-					//====================================
-
-
-					float theta_percentile = percentile_width * float(j + 1);
-					// Dithering
-					float theta_dither = percentile_width * HALF_PI;
-					vec2 theta_prng_seed = r.start.xy * r.dir.xy * ((j+1)*(k+1) / IMPORTANCE_SAMPLING_SAMPLES);
-					float theta_dither_percent = rand(theta_prng_seed);
-					theta_dither *= dither_strength*(theta_dither_percent > 0.5 ? 1.0 : -1.0);
-					
-					theta_percentile += theta_dither;
-
-
-
-					// Calculate the z-score for this percentile
-					float theta_z_score = inv_cdf(theta_percentile);
-
-
-					// Convert the z-score to the BRDF Gaussian Distribution
-					// Make the contribution of the incident angle falloff as the surface 
-					// roughness approaches 1
-					// Calculate theta (the angle the outbound ray makes with the normal)
-					float theta_o = theta_z_score * surface_roughness + (theta_i * (1 - surface_roughness));
-
-
-					//-------------- Dithering ----------------
-					//theta_o += theta_dither;
-					//phi_o += phi_dither;
-					//-----------------------------------------
-					
-					// Compute the intensity of this ray
-					float intensity = gaussian_brdf(theta_i, theta_o, surface_roughness);
-					total_intensity += intensity;
-				
-					// Calculate the reflected ray
-					Ray bounce;
-					bounce.start = closest_collision.p;
-					vec3 axis = normalize(cross( -r.dir, closest_collision.n));
-					bounce.dir = rotation_matrix(closest_collision.n, phi_o) * rotation_matrix(axis, theta_o) * closest_collision.n;
-
-
-					color += raytrace2( bounce, depth - 1) * intensity;
-					//======================================
-					// TEST : comparing this code to the single-bounce pass code
-					// The red and green components should match
-					//======================================
-//					vec3 trace_color = raytrace2( bounce, depth - 1);
-					// Getting the calced raytrace:
-//					color.x += max(max(trace_color.x, trace_color.y), trace_color.z);
-//					// Calculating the actual bounce
-//					Ray baseline_bounce = {closest_collision.p, reflect(r.dir, closest_collision.n) };
-//					vec3 baseline_col = raytrace2( baseline_bounce, depth - 1);
-//					float baseline_val = max(max(baseline_col.x,baseline_col.y),baseline_col.z);
-//					color.y += baseline_val;
-
-					//return bounce.dir * 0.5 + vec3(0.5);
-				}
-		}*/
-
-		// Random importance sampling:
-		int additional_rays = 0;
-		for(int j = 0; j < IMPORTANCE_SAMPLING_SAMPLES; j++)
-		{
-				//------------ Calculating Phi -------------
-				// Coming up with a seed that's unique per ray, per pass
-				vec2 phi_prng_seed = r.start.xz * r.dir.xz * (j + 1 + additional_rays) / IMPORTANCE_SAMPLING_SAMPLES;
-				// Choosing a random percentile to use for this ray's phi angle
-				float phi_percentile = rand_in_range(phi_prng_seed, 0.01, 0.99);
-
-				// Calculate the z-score for this percentile
-				float phi_z_score = inv_cdf(phi_percentile);
-
-				// Calculate phi (the angle that the outbound ray is rotated ABOUT the normal)
-				// centered at 0, with standard deviation at pi * surface_roughness
-				float phi_o = phi_z_score * PI * surface_roughness;
-				//------------------------------------------
-
-				//------------ Calculating Theta -------------
-				// Coming up with a seed that's unique per ray, per pass
-				vec2 theta_prng_seed = r.start.xy * r.dir.xy * (j + 1 + additional_rays) / IMPORTANCE_SAMPLING_SAMPLES;
-				
-				// Choosing a random percentile to use for this ray's theta angle
-				float theta_percentile = rand_in_range(theta_prng_seed, 0.01, 0.99);
-
-				// Calculate the z-score for this percentile
-				float theta_z_score = inv_cdf(theta_percentile);
-
-				// Convert the z-score to the BRDF Gaussian Distribution
-				// Make the contribution of the incident angle falloff as the surface roughness approaches 1
-				// Calculate theta (the angle the outbound ray makes with the normal)
-				float theta_o = theta_z_score * surface_roughness + (theta_i * (1 - surface_roughness));
-				//------------------------------------------
-
-				// Test - Seeing what RNG values we're getting
-				//return vec3(phi_percentile,theta_percentile,0.0);
-				//return vec3(phi_percentile);
-
-				// Test not using BRDF-based importance sampling
-				//phi_o = (phi_percentile * 2.0 - 1.0) * PI * surface_roughness;
-				//theta_o = (theta_percentile * 2.0 - 1.0) * surface_roughness + (theta_i * (1 - surface_roughness));
-					
-				// Compute the intensity of this ray
-				float intensity = gaussian_brdf(theta_i, theta_o, surface_roughness);
-				total_intensity += intensity;
-
-				
-				// Calculate the reflected ray
-				Ray bounce;
-				bounce.start = closest_collision.p;
-				vec3 axis = normalize(cross( -r.dir, closest_collision.n));
-				bounce.dir = rotation_matrix(closest_collision.n, phi_o) * rotation_matrix(axis, theta_o) * closest_collision.n;
-
-				color += raytrace2( bounce, depth - 1) * intensity;
-
-				// If the pixel's color value is low, 
-				// allow the ray the chance to cast additional rays
-				if( rand(r.start.xy * r.dir.xz * (additional_rays + 1) ) - 0.02 > dot(color,color)/total_intensity )
-				{
-					additional_rays++;
-					j--;
-				}
-		}
-		return color / total_intensity + vec3(0.05,0.05,0.05);
-		// Dividing color by total intensity to ensure 
-		color /= total_intensity;
-		//return (objects[closest_index].color + color);
-		//----------------------------------------------------------------------------
-		//return ((objects[closest_index].color + raytrace2( bounce, depth - 1))) * 0.5;
 	}
 	return vec3(0.0,0.0,0.0);
 }
