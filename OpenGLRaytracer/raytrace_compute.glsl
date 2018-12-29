@@ -217,9 +217,9 @@ void main()
 	// and Intersecting the ray with objects
 	//========================================
 
-	vec3 color = raytrace(world_ray,1);
+	//vec3 color = raytrace(world_ray,1);
 
-	//color = recursive_raytrace();
+	vec3 color = recursive_raytrace();
 
 	//========================================
 	// RNG Test Function
@@ -877,129 +877,106 @@ float rand_in_range( vec2 st, float min_v, float max_v)
 //==================================================================================================================
 // Recursive Raytrace Code
 //==================================================================================================================
-struct Raytrace_Stack_Element
+
+struct Stack_Element
 {
-	// Function Call Parameters
-	Ray r;
+	int stack_index;
 	int depth;
-
-	// Function State Parameters
-	Collision c;
-
-	// TODO - somehow reference the line of code that added this stack element to the stack 
-	// ( we need to know what portion / line of code in the calling stack element to return to)
-	int return_address;
-	// The index of the calling stack entry
-	int return_address_index;
+	int counter;
 };
 
-// Defining the null raytrace_stack_element
-Raytrace_Stack_Element null_raytrace_stack_element = { null_ray, -1, null_collision, -1, -1};
 
-
-Raytrace_Stack_Element stack[100];
-int stack_capacity = 100;
-
-// Index of the last element written into the stack
-int stack_pointer = -1;
+Stack_Element stack[100];
+const int stack_size = 100;
+// Points to the next free Stack_Element pointer
+int stack_pointer = 0;
 
 
 
-
-
-// Adds a recursive raytrace call to our stack
-// returns false if the stack is full.
-// return_address : the index of the calling element (is -1 for the first call)
-bool schedule_recursive_raytrace(Ray r, int depth, int return_address)
+void push_stack_element(int depth)
 {
-	if(stack_pointer >= stack_capacity - 1)
-		return false;
-
-	stack_pointer++;
-
-	stack[stack_pointer].r = r;
-	stack[stack_pointer].depth = depth;
-	stack[stack_pointer].return_address = return_address;
-	
-	return true;
-}
-
-
-// A test recursive function
-void test_func(Ray r, int depth)
-{
-	if(depth >= 1)
+	if(stack_pointer >= stack_size)
+	{
 		return;
+	}
+	
+	Stack_Element element;
+	element.stack_index = stack_pointer;
+	element.depth = depth;
+	element.counter = 0;
 
-	// Pushing a new stack_element to the stack
-	schedule_recursive_raytrace(r,depth + 1, -1);
+	stack[stack_pointer] = element;
+	stack_pointer++;
 }
+
+
+
+void pop_stack_element()
+{
+	stack_pointer--;
+	stack[stack_pointer].stack_index = -1;
+	stack[stack_pointer].depth = -1;
+	stack[stack_pointer].counter = -1;
+}
+
+
+
+const int MAX_DEPTH = 5;
+const int BRANCHES = 2;
+
+
+// This function processes the stack element at a given index
+
+// This function is guaranteed to be ran on the topmost stack element
+
+void process_stack_element(int index)
+{
+
+	// If the topmost stack element is not yet finished
+	// and if we are not yet at maximum recursion depth
+	if(stack[index].counter < BRANCHES && stack[index].depth < MAX_DEPTH)
+	{
+		// Push more elements to the stack
+		push_stack_element(stack[index].depth + 1);
+		stack[index].counter++;
+	}
+	// If the topmost stack element is finished
+	else
+	{
+		pop_stack_element();
+	}
+}
+
 
 // This function emulates recursive calls to raytrace:
 //FIXME - should be void
 vec3 recursive_raytrace()
 {
-		//TODO - need to iterate through the stack
-		// until we hit a stack overflow
-		// or until the stack is empty
+	// Add a raytrace to the stack
+	push_stack_element(0);
 
-		// The current process we are running
-		//int program_counter = 0;
+int break_counter = 0; int break_at = 125;
 
-		// Starting the first call:
-		//stack[0].r = null_ray;
-		//stack[0].c = null_collision;
-		stack[0].depth = 0;
-		//stack[0].return_address = -1;
-		//stack[0].return_address_index = -1;
+	// Process the stack until it's empty
+	while(stack_pointer > 0)
+	{
 
-		stack_pointer = 0;
-
-		int val = 0;
-
-		// While the stack is not empty:
-		while(stack_pointer >= 0)
-		{
-			// Getting the current stack_element from the stack to execute:
-			Raytrace_Stack_Element stack_element = stack[stack_pointer];
-			
-			// Execute the stack_element
-			test_func(stack_element.r, stack_element.depth);
-			//TODO - if the call added a new raytrace stack, we need to continue this loop:
-			if(stack_element.depth < 1)
-				continue;
-			
-			// FIXME- but now when we get back to the first function, it calls again...
-			val++;
-
-			// Popping the current stack_element
-			stack[stack_pointer] = null_raytrace_stack_element;
-
-			// Decrementing the program_counter
-			stack_pointer--;
-		}
-
-		// We want to debug how many runs are being executed:
-		vec3 colors[] = {vec3(0.0), vec3(0.5,0,0), vec3(1,0,0), vec3(0,0.5,0), vec3(0,1,0), vec3(0,0,0.5), vec3(0,0,1)};
-
-		if(val > 6)
-			val = 6;
-
-		return colors[val];
+break_counter++; if(break_counter > break_at) break;
 	
-		// while we have a function 
+		// Peek at the topmost stack element
+		int element_index = stack_pointer - 1;
+
+		// Process this stack element
+		process_stack_element(element_index);
+	}
 
 
-		//pseudo-code
-		//while(!stack is empty)
-		//{
-		//		pull process the element at the stack pointer
-		//		if that element adds another stack entry, repeat
-		//		else, 
-		//			get its return value, 
-		//			if no calling stack entry, 
-		//				terminate
-		//			return to calling stack entry and repeat
-		//}
+if(break_counter > break_at) return vec3(1.0,0.0,0.0);
+
+
+	// Return the color
+	return vec3(0.0,1.0,0.0);
 }
 //==================================================================================================================
+
+
