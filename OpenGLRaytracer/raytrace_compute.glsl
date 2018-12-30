@@ -53,6 +53,84 @@ struct Camera
 };
 
 
+//=============================================================================
+//		Material Defs
+//=============================================================================
+struct Material
+{
+	// Phong-Shading properties
+	vec4 ambient;			// Ambient Color
+	vec4 diffuse;			// Diffuse Color	
+	vec4 specular;			// Specular Color
+	float shininess;		// Phong-Shading specular exponent
+	vec4 emissive;			// Emissive Color
+
+	// Raytracing Material Properties
+	float reflectivity;		// Strength of the Reflected Ray's color
+	float transparency;		// Strength of the Refracted Ray's color
+	float refraction_index;	// Index of refraction (1.0 for air, 1.5 for glass, should be > 1.0)
+};
+
+// The index of refraction of open space
+const float air_index_of_refraction = 1.0;
+const float glass_index_of_refraction = 1.33;
+
+Material material1 = 
+{
+	vec4(1.0),				// Ambient Color
+	vec4(0.5,0.0,0.0,1.0),	// Diffuse Color	
+	vec4(1.0),				// Specular Color
+	4.0,					// Specular exponent
+	vec4(0.0),				// Emissive Color
+	0.0,					// Strength of the Reflected Ray's color
+	0.0,					// Strength of the Refracted Ray's color
+	1.5						// Index of refraction
+};
+
+Material material2 = 
+{
+	vec4(1.0),				// Ambient Color
+	vec4(0.3,0.6,0.3,1.0),	// Diffuse Color	
+	vec4(1.0),				// Specular Color
+	4.0,					// Specular exponent
+	vec4(0.0),				// Emissive Color
+	0.0,					// Strength of the Reflected Ray's color
+	0.0,					// Strength of the Refracted Ray's color
+	1.5						// Index of refraction
+};
+
+Material material3 = 
+{
+	vec4(0.0),				// Ambient Color
+	vec4(0.0),				// Diffuse Color	
+	vec4(0.0),				// Specular Color
+	4.0,					// Specular exponent
+	vec4(1.0),				// Emissive Color
+	0.0,					// Strength of the Reflected Ray's color
+	0.0,					// Strength of the Refracted Ray's color
+	1.5						// Index of refraction
+};
+
+Material material4 = 
+{
+	vec4(0.0),				// Ambient Color
+	vec4(0.0),				// Diffuse Color	
+	vec4(0.0),				// Specular Color
+	4.0,					// Specular exponent
+	vec4(1.0,0.0,0.0,1.0),				// Emissive Color
+	0.0,					// Strength of the Reflected Ray's color
+	0.0,					// Strength of the Refracted Ray's color
+	1.5						// Index of refraction
+};
+
+
+//=============================================================================
+
+
+//=============================================================================
+//		Object Definitions
+//=============================================================================
+
 struct Box
 {
 	vec3 mins;
@@ -76,18 +154,73 @@ struct Object
 	vec3 position;
 	// The pitch, yaw, and roll of the object applied in that order (degrees)
 	vec3 angles;
+	// The material of the object
+	Material material;
 	// The surface color of the object
-	vec3 color;
+//	vec3 color;
 	// The surface opacity of the object
 	// 0.0 = fully transparent
 	// 1.0 = fully opaque
-	float opacity;
+//	float opacity;
 	// The index of refraction of the object
-	float index_of_refraction;
+//	float index_of_refraction;
 };
 
+// Defining the null object types
+Box null_box = { vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0) };
+Sphere null_sphere = { -1.0 };
+
+//=============================================================================
+
+
+//=============================================================================
+//		Light Definitions
+//=============================================================================
+
+
+// Phong-Shading Point Lights
+struct Light
+{
+	vec3 position;				// The world position of the point light
+	vec4 ambient;				// Ambient Color
+	vec4 diffuse;				// Diffuse Color
+	vec4 specular;				// Specular Color
+};
+
+// List of Phong-shading Point lights
+Light[] lights = 
+{
+	// World Ambient Light
+	{
+		vec3(0.1),				// Position
+		vec4(0.1),				// Ambient Color
+		vec4(0.0),				// Diffuse Color
+		vec4(0.0)				// Specular Color
+	},
+	// Point Light # 1
+	{
+		vec3(7.0, 7.0, 2.0),	// Position
+		vec4(0.05),				// Ambient Color
+		vec4(1.0),				// Diffuse Color
+		vec4(1.0)				// Specular Color
+	},
+	// Point Light # 2
+	{
+		vec3(3.0, -3.0, 4.0),	// Position
+		vec4(0.05),				// Ambient Color
+		vec4(1.0,0.0,0.0,1.0),	// Diffuse Color
+		vec4(1.0,0.0,0.0,1.0)	// Specular Color
+	}
+};
+
+int lights_count = 3;
+
+
+//=============================================================================
+
+
+
 mat4 calc_projection_matrix(Camera c);
-//mat4 calc_projection_matrix(float t, float r, float b, float l, float n, float f);
 vec3 calc_view_ray(ivec2 pixel, int width, int height);
 mat4 calc_view_matrix(Camera c);
 vec3 raytrace(Ray r, int depth);
@@ -97,9 +230,6 @@ float rand(vec2 st);
 float rand_in_range( vec2 st, float min_v, float max_v);
 
 
-// Defining the null object types
-Box null_box = { vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0) };
-Sphere null_sphere = { -1.0 };
 
 // How much to scale the box movements by
 float time_scale = 0.4;
@@ -107,11 +237,6 @@ float time_scale = 0.4;
 
 float scaled_time = time * time_scale;
 
-// The index of refraction of open space
-const float air_index_of_refraction = 1.0;
-
-
-const float glass_index_of_refraction = 1.33;
 
 Object[] objects =
 {
@@ -120,9 +245,7 @@ Object[] objects =
 		null_sphere,														// Bounding Sphere
 		vec3( 0.0, 0.0, 0.0),												// Position
 		vec3( 0.0, 0.0, 0.0),												// Rotation
-		vec3( 1.0, 0.0, 0.0),												// Color
-		0.7,																// Opacity
-		glass_index_of_refraction											// Index of refraction
+		material1															// Material
 	},
 	{
 		{
@@ -133,9 +256,7 @@ Object[] objects =
 		// Make the box bob up and down
 		vec3( 0.0, 0.0, sin(scaled_time * 3.0)),							// Position
 		vec3( 0.0, scaled_time * 90.0, 0.0),								// Rotation
-		vec3( 1.0, 0.0, 0.0),												// Color
-		0.7,																// Opacity
-		glass_index_of_refraction											// Index of refraction
+		material1															// Material
 	},
 	{
 		{
@@ -146,9 +267,7 @@ Object[] objects =
 		vec3( 0.0, 0.0,-3.0),												// Position
 		// Make the box lean from one side to the other
 		vec3( sin(scaled_time * 5.0) * 10.0, 45.0, 0.0),					// Rotation
-		vec3( 0.0, 1.0, 0.0),												// Color
-		0.7,																// Opacity
-		glass_index_of_refraction											// Index of refraction
+		material2															// Material
 	},
 	{
 		{
@@ -159,9 +278,7 @@ Object[] objects =
 		vec3( 3.0, 4.0, 1.0),												// Position (3,4,4)
 		// Make the box tumble in the air
 		vec3( 45.0 + scaled_time * 45.0, 0.0, 45.0 + scaled_time * 180.0),	// Rotation
-		vec3( 0.0, 0.0, 1.0),												// Color
-		0.7,																// Opacity
-		glass_index_of_refraction											// Index of refraction
+		material1															// Material
 	},
 	{
 		null_box,															// Bounding Box
@@ -170,13 +287,30 @@ Object[] objects =
 		},
 		vec3( -3.0, 4.0, 1.0),												// Position (3,4,4)
 		vec3( 0.0),															// Rotation
-		vec3( 1.0, 0.0, 1.0),												// Color
-		0.7,																// Opacity
-		glass_index_of_refraction											// Index of refraction
+		material2															// Material
 	},
+	// Placing spheres at the point lights
+	{
+		null_box,															// Bounding Box
+		{
+			0.5																// Bounding Sphere Radius
+		},
+		lights[1].position,													// Position
+		vec3( 0.0),															// Rotation
+		material3															// Material
+	},
+	{
+		null_box,															// Bounding Box
+		{
+			0.5																// Bounding Sphere Radius
+		},
+		lights[2].position,													// Position
+		vec3( 0.0),															// Rotation
+		material4															// Material
+	}	
 };
 
-int objects_count = 5;
+int objects_count = 7;
 
 vec3 recursive_raytrace();
 
@@ -450,13 +584,6 @@ Collision intersect_sphere_object(Ray r, Object o)
 
 	c.t = t_near;
 
-// If qd = 0, there is exactly one solution (t_near == t_far)
-//	if(qd == 0.0)
-//	{
-//		return c;
-//	}
-
-
 	// If t_far < 0, the sphere is behind the ray, no intersection
 	if(t_far < 0.0)
 	{
@@ -576,7 +703,7 @@ Collision intersect_box_object(Ray r, Object o)
 	return c;
 }
 
-vec3 raytrace3(Ray r, int depth)
+/*vec3 raytrace3(Ray r, int depth)
 {
 	if(depth < 0)
 		return vec3(0.0);
@@ -722,6 +849,7 @@ vec3 raytrace2(Ray r, int depth)
 	}
 	return vec3(0.0,0.0,0.0);
 }
+*/
 
 vec3 raytrace(Ray r, int depth)
 {
@@ -756,8 +884,6 @@ vec3 raytrace(Ray r, int depth)
 				continue;
 			}
 		}
-		//TODO 
-		// etc...
 		else
 		{
 			continue;
@@ -772,13 +898,52 @@ vec3 raytrace(Ray r, int depth)
 	}
 
 	if(closest_index != -1)
-	{		
+	{
 		//return closest_collision.n * 0.5 + vec3(0.5);
 		//return objects[closest_index].color;
 
+		//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		// Phong Shading
+		//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		Material mat = objects[closest_index].material;
+
+		vec4 ambient = vec4(0.0);
+		vec4 diffuse = vec4(0.0);
+		vec4 specular = vec4(0.0);
+
+		// Iterating through all lights in the scene
+		for(int j = 0; j < lights_count; j++)
+		{
+			// Adding the light's ambient contribution
+			ambient += lights[j].ambient * mat.ambient;
+
+
+			// TODO - check if the object is in shadow
+			// If the ray from the surface to the light is unobstructed, add specular and diffuse
+
+			// Computing the direction from the surface to the light
+			vec3 light_dir = normalize(lights[j].position - closest_collision.p);
+			// Computing the light's reflection on the surface
+			vec3 light_ref = normalize( reflect(-light_dir, closest_collision.n));
+			float cos_theta = dot(light_dir, closest_collision.n);
+			float cos_phi = dot( normalize(-r.dir), light_ref);
+
+			// Adding the light's diffuse contribution
+			diffuse += lights[j].diffuse * mat.diffuse * max(cos_theta, 0.0);
+			// Adding the light's specular contribution
+			specular += lights[j].specular * mat.specular * pow( max( cos_phi, 0.0), mat.shininess);
+		}
+
+		vec4 phong_color = ambient + diffuse + specular + mat.emissive;
+
+		return phong_color.rgb;
+		//return phong_color.rgb * phong_color.a;
+		//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
 		// Cast an additional ray through the object
 		//----------------------------------------------------------------------------
-		vec3 color = objects[closest_index].color;
+/*		vec3 color = objects[closest_index].material.diffuse.xyz;
 		Ray transparent_ray;
 		transparent_ray.start = closest_collision.p + r.dir * 0.0001;
 		
@@ -787,24 +952,24 @@ vec3 raytrace(Ray r, int depth)
 		// If the ray is leaving an object from inside
 		if(closest_collision.inside)
 		{
-			refraction_ratio = objects[closest_index].index_of_refraction / air_index_of_refraction;
+			refraction_ratio = objects[closest_index].material.refraction_index / air_index_of_refraction;
 		}
 		else
 		{
-			refraction_ratio = air_index_of_refraction / objects[closest_index].index_of_refraction;
+			refraction_ratio = air_index_of_refraction / objects[closest_index].material.refraction_index;
 		}
 		transparent_ray.dir = refract(r.dir, closest_collision.n, refraction_ratio);
 		//transparent_ray.dir = r.dir;
 
 
 		vec3 refracted_color = vec3(0.0);
-		refracted_color += objects[closest_index].color;
-		refracted_color += raytrace2( transparent_ray, depth - 1);
-		refracted_color *= 0.5;
+		refracted_color += objects[closest_index].material.diffuse.xyz;
+		//refracted_color += raytrace2( transparent_ray, depth - 1);
+		//refracted_color *= 0.5;
 		//return vec3(closest_collision.t , refracted_color.g, refracted_color.b) / 10.0;
 		return refracted_color;
 		//----------------------------------------------------------------------------
-	
+*/	
 		//return closest_collision.n * 0.5 + vec3(0.5);
 		//return vec3(closest_collision.t / 100.0);
 		//return closest_collision.p / 10.0;
