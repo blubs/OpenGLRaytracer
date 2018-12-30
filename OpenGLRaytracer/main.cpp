@@ -14,7 +14,7 @@ void init();
 
 // The resolution to render the raytrace at
 
-#define RES_SCALE 0.4
+#define RES_SCALE 1.0
 #define RAYTRACE_RENDER_WIDTH	(int)(1280 * RES_SCALE)
 #define RAYTRACE_RENDER_HEIGHT	(int)(720 * RES_SCALE)
 

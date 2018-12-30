@@ -27,10 +27,6 @@ struct Ray
 	vec3 start;
 	// The normalized direction of the ray
 	vec3 dir;
-
-	//TODO: 1/dir is used very often, we can introduce an optimization to have a function
-	// that's used like r = computeRayValues(r);
-	// which computes and stores 1/dir in the ray, then functions can just use pre-computed value instead of dividing each time.
 };
 
 // Defining the null ray type
@@ -73,7 +69,6 @@ struct Material
 
 // The index of refraction of open space
 const float air_index_of_refraction = 1.0;
-const float glass_index_of_refraction = 1.33;
 
 Material material1 = 
 {
@@ -82,7 +77,7 @@ Material material1 =
 	vec4(1.0),				// Specular Color
 	4.0,					// Specular exponent
 	vec4(0.0),				// Emissive Color
-	0.0,					// Strength of the Reflected Ray's color
+	1.0,					// Strength of the Reflected Ray's color
 	0.0,					// Strength of the Refracted Ray's color
 	1.5						// Index of refraction
 };
@@ -94,41 +89,77 @@ Material material2 =
 	vec4(1.0),				// Specular Color
 	4.0,					// Specular exponent
 	vec4(0.0),				// Emissive Color
-	0.0,					// Strength of the Reflected Ray's color
+	1.0,					// Strength of the Reflected Ray's color
 	0.0,					// Strength of the Refracted Ray's color
 	1.5						// Index of refraction
 };
 
-Material material3 = 
+Material red_glass_material = 
 {
-	vec4(0.0),				// Ambient Color
-	vec4(0.0),				// Diffuse Color	
-	vec4(0.0),				// Specular Color
-	4.0,					// Specular exponent
-	vec4(1.0),				// Emissive Color
-	0.0,					// Strength of the Reflected Ray's color
-	0.0,					// Strength of the Refracted Ray's color
+	vec4(1.0),				// Ambient Color
+	vec4(1.0,0.0,0.0,1.0),	// Diffuse Color	
+	vec4(1.0),				// Specular Color
+	10.0,					// Specular exponent
+	vec4(0.0),				// Emissive Color
+	0.8,					// Strength of the Reflected Ray's color
+	0.4,					// Strength of the Refracted Ray's color
 	1.5						// Index of refraction
 };
 
-Material material4 = 
+Material green_glass_material = 
 {
-	vec4(0.0),				// Ambient Color
-	vec4(0.0),				// Diffuse Color	
-	vec4(0.0),				// Specular Color
-	4.0,					// Specular exponent
-	vec4(1.0,0.0,0.0,1.0),				// Emissive Color
-	0.0,					// Strength of the Reflected Ray's color
-	0.0,					// Strength of the Refracted Ray's color
+	vec4(1.0),				// Ambient Color
+	vec4(0.0,1.0,0.0,1.0),	// Diffuse Color	
+	vec4(1.0),				// Specular Color
+	10.0,					// Specular exponent
+	vec4(0.0),				// Emissive Color
+	0.4,					// Strength of the Reflected Ray's color
+	0.6,					// Strength of the Refracted Ray's color
 	1.5						// Index of refraction
 };
 
+Material blue_glass_material = 
+{
+	vec4(1.0),				// Ambient Color
+	vec4(0.0,0.0,1.0,1.0),	// Diffuse Color	
+	vec4(1.0),				// Specular Color
+	10.0,					// Specular exponent
+	vec4(0.0),				// Emissive Color
+	0.4,					// Strength of the Reflected Ray's color
+	0.6,					// Strength of the Refracted Ray's color
+	1.5						// Index of refraction
+};
+
+
+Material mirror_material = 
+{
+	vec4(1.0),				// Ambient Color
+	vec4(0.6,0.6,0.6,1.0),	// Diffuse Color	
+	vec4(1.0),				// Specular Color
+	4.0,					// Specular exponent
+	vec4(0.0),				// Emissive Color
+	1.0,					// Strength of the Reflected Ray's color
+	0.0,					// Strength of the Refracted Ray's colorgimp
+	1.0						// Index of refraction
+};
+
+Material wall_material = 
+{
+	vec4(0.5),				// Ambient Color
+	vec4(0.4),				// Diffuse Color	
+	vec4(0.3),				// Specular Color
+	3.0,					// Specular exponent
+	vec4(0.0),				// Emissive Color
+	0.3,					// Strength of the Reflected Ray's color
+	0.0,					// Strength of the Refracted Ray's color
+	1.0						// Index of refraction
+};
 
 //=============================================================================
 
 
 //=============================================================================
-//		Object Definitions
+//		Object Collision Definitions
 //=============================================================================
 
 struct Box
@@ -140,30 +171,6 @@ struct Box
 struct Sphere
 {
 	float radius;
-};
-
-struct Object
-{
-	// We will check each of these in order
-	// An object should not have both a Box and a Sphere
-	//The object's bounding box defined relative to the object's center
-	Box box;
-	// The object's sphere
-	Sphere sphere;
-	// The position of the Box_Object
-	vec3 position;
-	// The pitch, yaw, and roll of the object applied in that order (degrees)
-	vec3 angles;
-	// The material of the object
-	Material material;
-	// The surface color of the object
-//	vec3 color;
-	// The surface opacity of the object
-	// 0.0 = fully transparent
-	// 1.0 = fully opaque
-//	float opacity;
-	// The index of refraction of the object
-//	float index_of_refraction;
 };
 
 // Defining the null object types
@@ -193,7 +200,7 @@ Light[] lights =
 	// World Ambient Light
 	{
 		vec3(0.1),				// Position
-		vec4(0.1),				// Ambient Color
+		vec4(0.3),				// Ambient Color
 		vec4(0.0),				// Diffuse Color
 		vec4(0.0)				// Specular Color
 	},
@@ -215,38 +222,55 @@ Light[] lights =
 
 int lights_count = 3;
 
-
 //=============================================================================
 
-
-
+// Forward declarations
 mat4 calc_projection_matrix(Camera c);
 vec3 calc_view_ray(ivec2 pixel, int width, int height);
 mat4 calc_view_matrix(Camera c);
-vec3 raytrace(Ray r, int depth);
-float inv_cdf(float p);
-float gaussian_brdf(float theta_i, float theta_o, float r);
-float rand(vec2 st);
-float rand_in_range( vec2 st, float min_v, float max_v);
+vec3 recursive_raytrace(Ray r, int max_depth);
 
 
-
-// How much to scale the box movements by
+// time_scale allows us to slow all time-dependent movements in the scene
 float time_scale = 0.4;
-
-
 float scaled_time = time * time_scale;
+
+
+//=============================================================================
+//		Object Definitions
+//=============================================================================
+
+struct Object
+{
+	// We will check each of these in order
+	// An object should not have both a Box and a Sphere
+	//The object's bounding box defined relative to the object's center
+	Box box;
+	// The object's sphere
+	Sphere sphere;
+	// The position of the Box_Object
+	vec3 position;
+	// The pitch, yaw, and roll of the object applied in that order (degrees)
+	vec3 angles;
+	// The material of the object
+	Material material;
+};
 
 
 Object[] objects =
 {
+	// Large cube surrounding the scene
 	{
-		null_box,															// Bounding Box
+		{
+			vec3(-10.0),													// Bounding Box Mins
+			vec3( 10.0)														// Bounding Box Maxs
+		},
 		null_sphere,														// Bounding Sphere
-		vec3( 0.0, 0.0, 0.0),												// Position
-		vec3( 0.0, 0.0, 0.0),												// Rotation
-		material1															// Material
+		vec3( 0.0),															// Position
+		vec3( 0.0),															// Rotation
+		wall_material														// Material
 	},
+	// Small red box in the center
 	{
 		{
 			vec3(-1.0,-1.0,-1.0) * (0.5*sin(scaled_time * 0.5) + 1.5),		// Bounding Box Mins
@@ -256,8 +280,9 @@ Object[] objects =
 		// Make the box bob up and down
 		vec3( 0.0, 0.0, sin(scaled_time * 3.0)),							// Position
 		vec3( 0.0, scaled_time * 90.0, 0.0),								// Rotation
-		material1															// Material
+		mirror_material														// Material
 	},
+	// Large green box the makes up the floor
 	{
 		{
 			vec3(-10.0,-10.0,-1.0),											// Bounding Box Mins
@@ -267,8 +292,9 @@ Object[] objects =
 		vec3( 0.0, 0.0,-3.0),												// Position
 		// Make the box lean from one side to the other
 		vec3( sin(scaled_time * 5.0) * 10.0, 45.0, 0.0),					// Rotation
-		material2															// Material
+		green_glass_material												// Material
 	},
+	// Tumbling blue box
 	{
 		{
 			vec3(-1.0,-1.0,-2.0),											// Bounding Box Mins
@@ -278,8 +304,9 @@ Object[] objects =
 		vec3( 3.0, 4.0, 1.0),												// Position (3,4,4)
 		// Make the box tumble in the air
 		vec3( 45.0 + scaled_time * 45.0, 0.0, 45.0 + scaled_time * 180.0),	// Rotation
-		material1															// Material
+		blue_glass_material													// Material
 	},
+	// Small blue sphere
 	{
 		null_box,															// Bounding Box
 		{
@@ -287,13 +314,12 @@ Object[] objects =
 		},
 		vec3( -3.0, 4.0, 1.0),												// Position (3,4,4)
 		vec3( 0.0),															// Rotation
-		material2															// Material
+		red_glass_material													// Material
 	}
 };
-
 int objects_count = 5;
 
-vec3 recursive_raytrace();
+//=============================================================================
 
 void main()
 {
@@ -371,9 +397,9 @@ void main()
 	// and Intersecting the ray with objects
 	//========================================
 
-	vec3 color = raytrace(world_ray,4);
+	//vec3 color = raytrace(world_ray,4);
 
-	//vec3 color = recursive_raytrace();
+	vec3 color = recursive_raytrace(world_ray, 4);
 
 	//========================================
 	// RNG Test Function
@@ -687,154 +713,6 @@ Collision intersect_box_object(Ray r, Object o)
 	return c;
 }
 
-/*vec3 raytrace3(Ray r, int depth)
-{
-	if(depth < 0)
-		return vec3(0.0);
-
-	float closest = 10000;
-	int closest_index = -1;
-	Collision closest_collision;
-
-	for(int i = 0; i < objects_count; i++)
-	{
-		Collision c;
-		
-		// If the object is a box
-		if(objects[i].box != null_box)
-		{
-			// If the ray intersects the box
-			c = intersect_box_object(r, objects[i]);
-			if(c.t <= 0.0)
-			{
-				continue;
-			}
-		}
-		// If the object is a sphere
-		else if(objects[i].sphere != null_sphere)
-		{
-			// If the ray intersects the sphere
-			c = intersect_sphere_object(r, objects[i]);
-			if(c.t <= 0.0)
-			{
-				continue;
-			}
-		}
-		//TODO 
-		// etc...
-		else
-		{
-			continue;
-		}
-
-		if(c.t < closest)
-		{
-			closest = c.t;
-			closest_index = i;
-			closest_collision = c;
-		}
-	}
-
-	if(closest_index != -1)
-	{
-		//return (vec3(closest_collision.t) / 10.0) * (objects[closest_index].color);
-		//if(closest_collision.inside) return vec3(1.0) - objects[closest_index].color;
-		return objects[closest_index].color;
-	}
-	return vec3(0.0,0.0,0.0);
-}
-
-//FIXME - this is a duplicate function to alleviate the no recursion limitation
-vec3 raytrace2(Ray r, int depth)
-{
-	if(depth < 0)
-		return vec3(0.0);
-
-	float closest = 10000;
-	int closest_index = -1;
-	Collision closest_collision;
-
-	for(int i = 0; i < objects_count; i++)
-	{
-		Collision c;
-		
-		// If the object is a box
-		if(objects[i].box != null_box)
-		{
-			// If the ray intersects the box
-			c = intersect_box_object(r, objects[i]);
-			if(c.t <= 0.0)
-			{
-				continue;
-			}
-		}
-		// If the object is a sphere
-		else if(objects[i].sphere != null_sphere)
-		{
-			// If the ray intersects the sphere
-			c = intersect_sphere_object(r, objects[i]);
-			if(c.t <= 0.0)
-			{
-				continue;
-			}
-		}
-		//TODO 
-		// etc...
-		else
-		{
-			continue;
-		}
-
-		if(c.t < closest)
-		{
-			closest = c.t;
-			closest_index = i;
-			closest_collision = c;
-		}
-	}
-
-	if(closest_index != -1)
-	{		
-		//return closest_collision.n * 0.5 + vec3(0.5);
-		//return objects[closest_index].color;
-
-		// Cast an additional ray through the object
-		//----------------------------------------------------------------------------
-		vec3 color = objects[closest_index].color;
-		Ray transparent_ray;
-		transparent_ray.start = closest_collision.p + (r.dir * 0.0001);
-		
-		// Calculating the ratio of indices of refraction
-		float refraction_ratio = 1.0;
-		// If the ray is leaving an object from inside
-		if(closest_collision.inside)
-		{
-			refraction_ratio = objects[closest_index].index_of_refraction / air_index_of_refraction;
-		}
-		else
-		{
-			refraction_ratio = air_index_of_refraction / objects[closest_index].index_of_refraction;
-		}
-		transparent_ray.dir = refract(r.dir, closest_collision.n, refraction_ratio);
-		//transparent_ray.dir = r.dir;
-
-
-		vec3 refracted_color = vec3(0.0);
-		//refracted_color += objects[closest_index].color;
-		refracted_color += raytrace3( transparent_ray, depth - 1);
-		//refracted_color *= 0.5;
-		//return vec3(closest_collision.t , refracted_color.g, refracted_color.b) / 10.0;
-		return refracted_color;
-		//----------------------------------------------------------------------------
-	
-		//return closest_collision.n * 0.5 + vec3(0.5);
-		//return vec3(closest_collision.t / 100.0);
-		//return closest_collision.p / 10.0;
-	}
-	return vec3(0.0,0.0,0.0);
-}
-*/
-
 // Returns the closest collision of a ray
 //
 // Returns a collision with a object_index of -1 if no collision
@@ -891,234 +769,60 @@ Collision get_closest_collision(Ray r)
 	return closest_collision;
 }
 
-vec3 raytrace(Ray r, int depth)
+// Computes the Phong ADS lighting for an incident Ray r at a surface defined by Collision c
+// Returns the vec3 color of the surface
+vec3 ads_phong_lighting(Ray r, Collision c)
 {
-	if(depth < 0)
-		return vec3(0.0);
+	Material mat = objects[c.object_index].material;
 
-	Collision c = get_closest_collision(r);
+	vec4 ambient = vec4(0.0);
+	vec4 diffuse = vec4(0.0);
+	vec4 specular = vec4(0.0);
 
-	if(c.object_index != -1)
+	// Iterating through all lights in the scene
+	for(int j = 0; j < lights_count; j++)
 	{
-		//return closest_collision.n * 0.5 + vec3(0.5);
-		//return objects[closest_index].color;
+		// Adding the light's ambient contribution
+		ambient += lights[j].ambient * mat.ambient;
 
-		//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-		// Phong Shading
-		//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-		Material mat = objects[c.object_index].material;
+		// Computing the direction from the surface to the light
+		vec3 light_dir = normalize(lights[j].position - c.p);
 
-		vec4 ambient = vec4(0.0);
-		vec4 diffuse = vec4(0.0);
-		vec4 specular = vec4(0.0);
+		// Check to see if any object is casting a shadow on this surface
+		Ray light_ray;
+		light_ray.start = c.p + c.n * 0.01;
+		light_ray.dir = lights[j].position - c.p;
+		bool in_shadow = false;
 
-		// Iterating through all lights in the scene
-		for(int j = 0; j < lights_count; j++)
+		// Cast the ray against the scene
+		Collision c_shadow = get_closest_collision(light_ray);
+
+		// If the ray hit an object and if the hit occurred before between the surface and the light
+		if(c_shadow.object_index != -1 && c_shadow.t < 1.0)
 		{
-			// Adding the light's ambient contribution
-			ambient += lights[j].ambient * mat.ambient;
-
-			// Computing the direction from the surface to the light
-			vec3 light_dir = normalize(lights[j].position - c.p);
-
-			// Check to see if any object is casting a shadow on this surface
-			Ray light_ray;
-			light_ray.start = c.p + c.n * 0.01;
-			light_ray.dir = lights[j].position - c.p;
-			bool in_shadow = false;
-			
-			//FIXME - shadows aren't working
-
-			// Cast the ray against the scene
-			Collision c_shadow = get_closest_collision(light_ray);
-
-			// If the ray hit an object and if the hit occurred before between the surface and the light
-			if(c_shadow.object_index != -1 && c_shadow.t < 1.0)
-			{
-				in_shadow = true;
-			}
-
-			// If this surface is in shadow, don't add diffuse and specular components
-			if(in_shadow == false)
-			{
-				// Computing the light's reflection on the surface
-				vec3 light_ref = normalize( reflect(-light_dir, c.n));
-				float cos_theta = dot(light_dir, c.n);
-				float cos_phi = dot( normalize(-r.dir), light_ref);
-
-				// Adding the light's diffuse contribution
-				diffuse += lights[j].diffuse * mat.diffuse * max(cos_theta, 0.0);
-				// Adding the light's specular contribution
-				specular += lights[j].specular * mat.specular * pow( max( cos_phi, 0.0), mat.shininess);
-			}
+			in_shadow = true;
 		}
 
-		vec4 phong_color = ambient + diffuse + specular + mat.emissive;
-
-		return phong_color.rgb;
-		//return phong_color.rgb * phong_color.a;
-		//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
-		// Cast an additional ray through the object
-		//----------------------------------------------------------------------------
-/*		vec3 color = objects[closest_index].material.diffuse.xyz;
-		Ray transparent_ray;
-		transparent_ray.start = closest_collision.p + r.dir * 0.0001;
-		
-		// Calculating the ratio of indices of refraction
-		float refraction_ratio = 1.0;
-		// If the ray is leaving an object from inside
-		if(closest_collision.inside)
+		// If this surface is in shadow, don't add diffuse and specular components
+		if(in_shadow == false)
 		{
-			refraction_ratio = objects[closest_index].material.refraction_index / air_index_of_refraction;
-		}
-		else
-		{
-			refraction_ratio = air_index_of_refraction / objects[closest_index].material.refraction_index;
-		}
-		transparent_ray.dir = refract(r.dir, closest_collision.n, refraction_ratio);
-		//transparent_ray.dir = r.dir;
+			// Computing the light's reflection on the surface
+			vec3 light_ref = normalize( reflect(-light_dir, c.n));
+			float cos_theta = dot(light_dir, c.n);
+			float cos_phi = dot( normalize(-r.dir), light_ref);
 
-
-		vec3 refracted_color = vec3(0.0);
-		refracted_color += objects[closest_index].material.diffuse.xyz;
-		//refracted_color += raytrace2( transparent_ray, depth - 1);
-		//refracted_color *= 0.5;
-		//return vec3(closest_collision.t , refracted_color.g, refracted_color.b) / 10.0;
-		return refracted_color;
-		//----------------------------------------------------------------------------
-*/	
-		//return closest_collision.n * 0.5 + vec3(0.5);
-		//return vec3(closest_collision.t / 100.0);
-		//return closest_collision.p / 10.0;
+			// Adding the light's diffuse contribution
+			diffuse += lights[j].diffuse * mat.diffuse * max(cos_theta, 0.0);
+			// Adding the light's specular contribution
+			specular += lights[j].specular * mat.specular * pow( max( cos_phi, 0.0), mat.shininess);
+		}
 	}
-	return vec3(0.0,0.0,0.0);
+
+	// Adding all of the light components to produce the final ADS Phong color
+	vec4 phong_color = ambient + diffuse + specular + mat.emissive;
+
+	return phong_color.rgb * phong_color.a;
 }
-
-
-//==================================================================================================================
-// Bi-Directional Reflectance Distribution Function (BRDF)
-//==================================================================================================================
-
-//---------------------------------------------------------
-// The inverse of the Cumulative Distribution Function 
-// for the Gaussian Normal Distribution Function
-//---------------------------------------------------------
-// This implementation is based on an approximation by 
-// Paul M. Voutier, as outlined in his paper: 
-// https://arxiv.org/abs/1002.0567
-//---------------------------------------------------------
-// This function takes a desired percentile as a parameter
-// and outputs a z-score corresponding to the x-coordinate 
-// on the standard gaussian function graph
-// p : the desired percentile whose z-score we want
-//---------------------------------------------------------
-float inv_cdf(float p) 
-{
-	// The central section
-	if(0.0465 <= p && p <= 0.9535)
-	{
-		float a[] =
-		{
-			1.246899760652504, 0.195740115269792,-0.652871358365296, 
-			0.155331081623168, -0.839293158122257
-		};
-		float q = p - 0.5;
-		float r = q * q;
-		return q * (a[0] + (((a[2] * r) + (a[1])) / ((r * r) + (a[4] * r) + (a[3]))));
-	}
-	// The left and right tail sections:
-	else
-	{
-		float b[] =
-		{
-			-1.000182518730158122,16.682320830719986527,4.120411523939115059,
-			0.029814187308200211,7.173787663925508066,8.759693508958633869
-		};
-		// A scaling factor I introduced for better results
-		float scale = 1.64;
-		// If we're dealing with the right-tail section, invert p
-		if(p > 0.5)
-		{
-			p = p - 1.0;
-			scale *= -1.0;
-		}
-		float q = sqrt(log(1.0 / (p * p)));
-		return scale * (b[0] * q) + (b[3]) + (((b[2] * q) + (b[1])) / ((q * q) + (b[5] * q) + (b[4])));
-	}
-}
-//---------------------------------------------------------
-
-//---------------------------------------------------------
-// The Gaussian Function based BRDF
-//---------------------------------------------------------
-// This implementation is based on the simple gaussian formula
-// with standard deviation r and mean of theta_i
-//---------------------------------------------------------
-// This implementation is modified to have the mean tend 
-// to 0 as the roughness approaches 1
-//---------------------------------------------------------
-// This is done to simulate the the importance of the 
-// angle of the incident ray tends to decrease as the 
-// surface approaches a perfect diffuser
-//---------------------------------------------------------
-// Takes as a parameter the surface roughness, incident 
-// and outgoing (reflected) angles and outputs the 
-// intensity of the ray from 0 to 1
-// theta_i : the angle of the incident ray [0,pi/2]
-// theta_o : the angle of the reflected ray [-pi/2, pi/2]
-// r : the surface roughness (0,1]
-//---------------------------------------------------------
-float gaussian_brdf(float theta_i, float theta_o, float r)
-{
-	float inv_r = 1.0 / r;
-	// Make the theta_i contribution tend to 0 as r tends to 1
-	float a = theta_o - (theta_i * (1 - r));
-	float exponent = -0.5 * inv_r * inv_r * a * a;
-	return inv_r * (1.0 / ROOT_TWO_PI) * exp(exponent);
-}
-//---------------------------------------------------------
-
-//---------------------------------------------------------
-// Pseudo Random Number Generator
-//---------------------------------------------------------
-// This implementation can be found on
-// https://thebookofshaders.com/10/
-//---------------------------------------------------------
-// Returns a uniformly distributed random number in [0,1)
-// given seeds s and t as a vec2
-//---------------------------------------------------------
-float rand(vec2 st)
-{
-	// Suggested values:
-	//const float a = 12.9898;
-	//const float b = 78.233;
-	//const float c = 43758.5453123;
-
-	// Using my own custom values that seem to give a more uniform distribution:
-	// NOTE: a histogram of the PRNG with these values shows a small spike near the 
-	// 50th - 60th percentile, but this spike isn't significant enough to skew our results
-	const float a = 51.3259;
-	const float b = 75.152;
-	const float c = 4087.62;
-
-	return fract(sin(dot(st, vec2(a, b))) * c);
-}
-//---------------------------------------------------------
-
-//---------------------------------------------------------
-// ranged-Pseudo Random Number Generator
-//---------------------------------------------------------
-// Returns a uniformly distributed random number  
-// in [min_v,max_v), given seeds s and t as a vec2
-//---------------------------------------------------------
-// Returns a random number between min_v and max_v
-float rand_in_range( vec2 st, float min_v, float max_v)
-{
-	return min_v + (rand(st) * (max_v - min_v));
-}
-//---------------------------------------------------------
 
 //==================================================================================================================
 
@@ -1128,82 +832,229 @@ float rand_in_range( vec2 st, float min_v, float max_v)
 
 struct Stack_Element
 {
-	int stack_index;
-	int depth;
-	int counter;
+	int type;					// The type of ray ( 1 = reflected, 2 = refracted )
+	int depth;					// The depth of the recursive raytrace
+	int counter;				// Keeps track of what phase each recursive call is at (Each call is broken down into four phases)
+
+	vec3 phong_color;			// Contains the Phong ADS model color
+	vec3 reflected_color;		// Contains the reflected color
+	vec3 refracted_color;		// Contains the refracted color
+
+	bool reflected;				// Whether or not this raytrace cast a reflection ray
+	bool refracted;				// Whether or not this raytrace cast a refraction ray
+
+	vec3 final_color;			// Contains the final mixed output of the recursive raytrace call
+	Ray ray;					// The ray for this raytrace invocation
+	Collision collision;		// The collision for this raytrace invocation. Contains a null_collision value until the phase 0
 };
 
 
+const int RAY_TYPE_REFLECTION = 1;
+const int RAY_TYPE_REFRACTION = 2;
+
+// Defining the null stack element
+Stack_Element null_stack_element = { 0, -1, -1, vec3(0.0), vec3(0.0), vec3(0.0), false, false, vec3(0.0), null_ray, null_collision };
+
 Stack_Element stack[100];
 const int stack_size = 100;
+
 // Points to the next free Stack_Element pointer
 int stack_pointer = 0;
 
+// Holds the last popped element from the stack
+Stack_Element popped_stack_element;
 
 
-void push_stack_element(int depth)
+
+// Schedules a new raytrace by adding it to the top of the stack
+void push_stack_element(Ray r, int depth, int type)
 {
+	// Don't exceed the stack limits
 	if(stack_pointer >= stack_size)
 	{
 		return;
 	}
 	
 	Stack_Element element;
-	element.stack_index = stack_pointer;
+	element.type = type;
 	element.depth = depth;
 	element.counter = 0;
+	element.phong_color = vec3(0.0);
+	element.reflected_color = vec3(0.0);
+	element.refracted_color = vec3(0.0);
+	element.reflected = false;
+	element.refracted = false;
+	element.final_color = vec3(0.0);
+	element.ray = r;
+	element.collision = null_collision;
 
 	stack[stack_pointer] = element;
 	stack_pointer++;
 }
 
 
-
+// Removes the topmost stack element
 void pop_stack_element()
 {
+	// Decrement the stack pointer
 	stack_pointer--;
-	stack[stack_pointer].stack_index = -1;
-	stack[stack_pointer].depth = -1;
-	stack[stack_pointer].counter = -1;
+	// Store the element we're removing in popped_stack_element
+	popped_stack_element = stack[stack_pointer];
+	// Erase the element from the stack
+	stack[stack_pointer] = null_stack_element;
 }
 
 
 
-const int MAX_DEPTH = 5;
-const int BRANCHES = 2;
-
-
 // This function processes the stack element at a given index
-
 // This function is guaranteed to be ran on the topmost stack element
-
 void process_stack_element(int index)
 {
+	// If there is a popped_stack_element that just ran, it holds one of our values
+	// Store it and delete it
+	if(popped_stack_element != null_stack_element)
+	{
+		if(popped_stack_element.type == RAY_TYPE_REFLECTION)
+		{
+			stack[index].reflected_color = popped_stack_element.final_color;
+		}
+		else if(popped_stack_element.type == RAY_TYPE_REFRACTION)
+		{
+			stack[index].refracted_color = popped_stack_element.final_color;
+		}
+		popped_stack_element = null_stack_element;
+	}
 
-	// If the topmost stack element is not yet finished
-	// and if we are not yet at maximum recursion depth
-	if(stack[index].counter < BRANCHES && stack[index].depth < MAX_DEPTH)
+	Ray r = stack[index].ray;
+	Collision c = stack[index].collision;
+
+	// Iterate through the raytrace phases (explained below)
+	while(stack[index].counter < 5)
 	{
-		// Push more elements to the stack
-		push_stack_element(stack[index].depth + 1);
+		//=================================================
+		// PHASE 0 - Raytrace Collision Detection
+		//=================================================
+		if(stack[index].counter == 0)
+		{
+			//Cast ray against the scene, store the collision result
+			c = get_closest_collision(r);
+
+			// If the ray didn't hit anything, stop.
+			if(c.object_index == -1)
+				break;
+
+			// Store the collision result
+			stack[index].collision = c;
+		}
+
+		//=================================================
+		// PHASE 1 - Phong ADS Lighting Computation
+		//=================================================
+		if(stack[index].counter == 1)
+		{
+			stack[index].phong_color = ads_phong_lighting(r, c);
+		}
+		//=================================================
+		// PHASE 2 - Reflection Bounce Pass Computation
+		//=================================================
+		if(stack[index].counter == 2)
+		{
+			// Only make recursive raytrace passes if we're not at max depth
+			if(stack[index].depth > 0)
+			{
+				// Only cast a reflection ray if the object is reflective
+				if(objects[c.object_index].material.reflectivity > 0.0)
+				{
+					// Building the reflected ray
+					Ray reflected_ray;
+					reflected_ray.start = c.p + c.n * 0.001;
+					reflected_ray.dir = reflect(r.dir, c.n);
+
+					// Adding a raytrace for that ray to the stack
+					push_stack_element(reflected_ray, stack[index].depth - 1, RAY_TYPE_REFLECTION);
+					stack[index].reflected = true;
+				}
+			}
+		}
+		//=================================================
+		// PHASE 3 - Refraction Transparency Pass Computation
+		//=================================================
+		if(stack[index].counter == 3)
+		{
+			// Only make recursive raytrace passes if we're not at max depth
+			if(stack[index].depth > 0)
+			{
+				// Only cast a refraction ray if the object is transparent
+				if(objects[c.object_index].material.transparency > 0.0)
+				{
+					// Building the refracted ray
+					Ray refracted_ray;
+					refracted_ray.start = c.p - c.n * 0.001;
+
+					// To compute the refracted_ray direction, we need to refract the ray using the object's index of refraction
+					// Calculating the ratio of indices of refraction
+					float object_index_of_refraction = objects[c.object_index].material.refraction_index;
+					float refraction_ratio = air_index_of_refraction / object_index_of_refraction;				
+				
+					// If the ray is leaving an object from inside, flip the ratio
+					if(c.inside)
+					{
+						refraction_ratio = 1.0 / refraction_ratio; 
+					}
+					refracted_ray.dir = refract(r.dir, c.n, refraction_ratio);
+
+					// Adding a raytrace for that ray to the stack
+					push_stack_element(refracted_ray, stack[index].depth - 1, RAY_TYPE_REFRACTION);
+					stack[index].refracted = true;
+				}
+			}
+		}
+		//=================================================
+		// PHASE 4 - Mixing to produce the final color
+		//=================================================
+		if(stack[index].counter == 4)
+		{
+			Material mat = objects[c.object_index].material;
+
+			vec3 phong_color = stack[index].phong_color;
+			vec3 reflected_color = stack[index].reflected_color;
+			vec3 refracted_color = stack[index].refracted_color;
+
+			vec3 final_color = phong_color;
+			
+			if(stack[index].reflected)
+			{
+				final_color = mix(final_color, reflected_color, mat.reflectivity);
+			}
+			if(stack[index].refracted)
+			{
+				final_color = mix(final_color, refracted_color, mat.transparency);
+			}
+
+			stack[index].final_color = final_color;
+		}
+		//=================================================
+
 		stack[index].counter++;
+
+		// Only process one phase per process_stack_element() invocation
+		return;
 	}
-	// If the topmost stack element is finished
-	else
-	{
-		pop_stack_element();
-	}
+
+	// Once we've finished processing the stack element, pop it
+	pop_stack_element();
 }
 
 
 // This function emulates recursive calls to raytrace:
-//FIXME - should be void
-vec3 recursive_raytrace()
-{
+vec3 recursive_raytrace(Ray r, int max_depth)
+{	
 	// Add a raytrace to the stack
-	push_stack_element(0);
+	push_stack_element( r, max_depth, RAY_TYPE_REFLECTION);
 
-int break_counter = 0; int break_at = 125;
+
+int break_counter = 0; int break_at = 10000;//252
+
 
 	// Process the stack until it's empty
 	while(stack_pointer > 0)
@@ -1221,9 +1072,8 @@ break_counter++; if(break_counter > break_at) break;
 
 if(break_counter > break_at) return vec3(1.0,0.0,0.0);
 
-
-	// Return the color
-	return vec3(0.0,1.0,0.0);
+	// Return the final_color value of the last-popped stack element
+	return popped_stack_element.final_color;
 }
 //==================================================================================================================
 
