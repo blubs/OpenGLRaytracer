@@ -288,29 +288,10 @@ Object[] objects =
 		vec3( -3.0, 4.0, 1.0),												// Position (3,4,4)
 		vec3( 0.0),															// Rotation
 		material2															// Material
-	},
-	// Placing spheres at the point lights
-	{
-		null_box,															// Bounding Box
-		{
-			0.5																// Bounding Sphere Radius
-		},
-		lights[1].position,													// Position
-		vec3( 0.0),															// Rotation
-		material3															// Material
-	},
-	{
-		null_box,															// Bounding Box
-		{
-			0.5																// Bounding Sphere Radius
-		},
-		lights[2].position,													// Position
-		vec3( 0.0),															// Rotation
-		material4															// Material
-	}	
+	}
 };
 
-int objects_count = 7;
+int objects_count = 5;
 
 vec3 recursive_raytrace();
 
@@ -549,10 +530,12 @@ struct Collision
 	vec3 n;
 	// Whether the collision occurs inside of the object
 	bool inside;
+	// The index of the object this collision hit
+	int object_index;
 };
 
 // This defines what a null collision looks like
-Collision null_collision = { -1.0, vec3(0.0), vec3(0.0), false};
+Collision null_collision = { -1.0, vec3(0.0), vec3(0.0), false, -1};
 
 Collision intersect_sphere_object(Ray r, Object o)
 {
@@ -595,8 +578,9 @@ Collision intersect_sphere_object(Ray r, Object o)
 	if(t_near < 0.0)
 	{
 		// for now, ignore inside collisions
-		c.t = -1.0;
-		return c;
+		//FIXMEFIXMEFIXMEFIXME
+		//c.t = -1.0;
+		//return c;
 		c.t = t_far;
 		c.inside = true;
 	}
@@ -851,14 +835,21 @@ vec3 raytrace2(Ray r, int depth)
 }
 */
 
-vec3 raytrace(Ray r, int depth)
+// Returns the closest collision of a ray
+//
+// Returns a collision with a object_index of -1 if no collision
+//
+// A Collision struct consists of:
+// t : the t-value of the collision along the ray
+// p : the world-space position of the collision
+// n : the world-space surface normal at the collision
+// inside : whether this ray started inside and exited the object
+// object_index : the index in the objects[] array of the object this collision hit
+Collision get_closest_collision(Ray r)
 {
-	if(depth < 0)
-		return vec3(0.0);
-
 	float closest = 10000;
-	int closest_index = -1;
 	Collision closest_collision;
+	closest_collision.object_index = -1;
 
 	for(int i = 0; i < objects_count; i++)
 	{
@@ -892,12 +883,22 @@ vec3 raytrace(Ray r, int depth)
 		if(c.t < closest)
 		{
 			closest = c.t;
-			closest_index = i;
 			closest_collision = c;
+			closest_collision.object_index = i;
 		}
 	}
 
-	if(closest_index != -1)
+	return closest_collision;
+}
+
+vec3 raytrace(Ray r, int depth)
+{
+	if(depth < 0)
+		return vec3(0.0);
+
+	Collision c = get_closest_collision(r);
+
+	if(c.object_index != -1)
 	{
 		//return closest_collision.n * 0.5 + vec3(0.5);
 		//return objects[closest_index].color;
@@ -905,7 +906,7 @@ vec3 raytrace(Ray r, int depth)
 		//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 		// Phong Shading
 		//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-		Material mat = objects[closest_index].material;
+		Material mat = objects[c.object_index].material;
 
 		vec4 ambient = vec4(0.0);
 		vec4 diffuse = vec4(0.0);
@@ -917,21 +918,39 @@ vec3 raytrace(Ray r, int depth)
 			// Adding the light's ambient contribution
 			ambient += lights[j].ambient * mat.ambient;
 
-
-			// TODO - check if the object is in shadow
-			// If the ray from the surface to the light is unobstructed, add specular and diffuse
-
 			// Computing the direction from the surface to the light
-			vec3 light_dir = normalize(lights[j].position - closest_collision.p);
-			// Computing the light's reflection on the surface
-			vec3 light_ref = normalize( reflect(-light_dir, closest_collision.n));
-			float cos_theta = dot(light_dir, closest_collision.n);
-			float cos_phi = dot( normalize(-r.dir), light_ref);
+			vec3 light_dir = normalize(lights[j].position - c.p);
 
-			// Adding the light's diffuse contribution
-			diffuse += lights[j].diffuse * mat.diffuse * max(cos_theta, 0.0);
-			// Adding the light's specular contribution
-			specular += lights[j].specular * mat.specular * pow( max( cos_phi, 0.0), mat.shininess);
+			// Check to see if any object is casting a shadow on this surface
+			Ray light_ray;
+			light_ray.start = c.p + c.n * 0.01;
+			light_ray.dir = lights[j].position - c.p;
+			bool in_shadow = false;
+			
+			//FIXME - shadows aren't working
+
+			// Cast the ray against the scene
+			Collision c_shadow = get_closest_collision(light_ray);
+
+			// If the ray hit an object and if the hit occurred before between the surface and the light
+			if(c_shadow.object_index != -1 && c_shadow.t < 1.0)
+			{
+				in_shadow = true;
+			}
+
+			// If this surface is in shadow, don't add diffuse and specular components
+			if(in_shadow == false)
+			{
+				// Computing the light's reflection on the surface
+				vec3 light_ref = normalize( reflect(-light_dir, c.n));
+				float cos_theta = dot(light_dir, c.n);
+				float cos_phi = dot( normalize(-r.dir), light_ref);
+
+				// Adding the light's diffuse contribution
+				diffuse += lights[j].diffuse * mat.diffuse * max(cos_theta, 0.0);
+				// Adding the light's specular contribution
+				specular += lights[j].specular * mat.specular * pow( max( cos_phi, 0.0), mat.shininess);
+			}
 		}
 
 		vec4 phong_color = ambient + diffuse + specular + mat.emissive;
