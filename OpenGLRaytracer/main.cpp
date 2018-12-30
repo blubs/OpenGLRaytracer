@@ -14,7 +14,6 @@ void init();
 
 // The resolution to render the raytrace at
 
-
 #define RES_SCALE 0.4
 #define RAYTRACE_RENDER_WIDTH	(int)(1280 * RES_SCALE)
 #define RAYTRACE_RENDER_HEIGHT	(int)(720 * RES_SCALE)
@@ -214,7 +213,7 @@ void draw()
 	float cur_time = get_current_time();
 
 	//=======================================================
-	// Calling the Raytrace shader
+	// Calling the Raytrace compute shader
 	//=======================================================
 
 	// Bind the raytrace compute shader
@@ -228,8 +227,6 @@ void draw()
 
 	// Execute the raytrace shader in WIDTH X HEIGHT X 1 groups of size (1 x 1 x 1)
 	int pixelsPerGroup = 1;
-
-
 
 	int workGroupsX = RAYTRACE_RENDER_WIDTH;
 	int workGroupsY = RAYTRACE_RENDER_HEIGHT;
@@ -260,7 +257,6 @@ void draw()
 	glEnableVertexAttribArray(1);
 
 	// Drawing the fullscreen quad
-	//glDrawArrays(GL_LINE_STRIP, 0, 6);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 

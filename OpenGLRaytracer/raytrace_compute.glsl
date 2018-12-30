@@ -59,11 +59,19 @@ struct Box
 	vec3 maxs;
 };
 
+struct Sphere
+{
+	float radius;
+};
+
 struct Object
 {
 	// We will check each of these in order
-	//The box's axis-aligned bounding box defined relative to the object's center
+	// An object should not have both a Box and a Sphere
+	//The object's bounding box defined relative to the object's center
 	Box box;
+	// The object's sphere
+	Sphere sphere;
 	// The position of the Box_Object
 	vec3 position;
 	// The pitch, yaw, and roll of the object applied in that order (degrees)
@@ -91,6 +99,7 @@ float rand_in_range( vec2 st, float min_v, float max_v);
 
 // Defining the null object types
 Box null_box = { vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0) };
+Sphere null_sphere = { -1.0 };
 
 // How much to scale the box movements by
 float time_scale = 0.4;
@@ -108,6 +117,7 @@ Object[] objects =
 {
 	{
 		null_box,															// Bounding Box
+		null_sphere,														// Bounding Sphere
 		vec3( 0.0, 0.0, 0.0),												// Position
 		vec3( 0.0, 0.0, 0.0),												// Rotation
 		vec3( 1.0, 0.0, 0.0),												// Color
@@ -119,6 +129,7 @@ Object[] objects =
 			vec3(-1.0,-1.0,-1.0) * (0.5*sin(scaled_time * 0.5) + 1.5),		// Bounding Box Mins
 			vec3( 1.0, 1.0, 1.0) * (0.5*sin(scaled_time * 0.5) + 1.5)		// Bounding Box Maxs
 		},
+		null_sphere,														// Bounding Sphere
 		// Make the box bob up and down
 		vec3( 0.0, 0.0, sin(scaled_time * 3.0)),							// Position
 		vec3( 0.0, scaled_time * 90.0, 0.0),								// Rotation
@@ -131,6 +142,7 @@ Object[] objects =
 			vec3(-10.0,-10.0,-1.0),											// Bounding Box Mins
 			vec3( 10.0, 10.0, 1.0)											// Bounding Box Maxs
 		},
+		null_sphere,														// Bounding Sphere
 		vec3( 0.0, 0.0,-3.0),												// Position
 		// Make the box lean from one side to the other
 		vec3( sin(scaled_time * 5.0) * 10.0, 45.0, 0.0),					// Rotation
@@ -143,6 +155,7 @@ Object[] objects =
 			vec3(-1.0,-1.0,-2.0),											// Bounding Box Mins
 			vec3( 1.0, 1.0, 2.0)											// Bounding Box Maxs
 		},
+		null_sphere,														// Bounding Sphere
 		vec3( 3.0, 4.0, 1.0),												// Position (3,4,4)
 		// Make the box tumble in the air
 		vec3( 45.0 + scaled_time * 45.0, 0.0, 45.0 + scaled_time * 180.0),	// Rotation
@@ -150,9 +163,20 @@ Object[] objects =
 		0.7,																// Opacity
 		glass_index_of_refraction											// Index of refraction
 	},
+	{
+		null_box,															// Bounding Box
+		{
+			2.0																// Bounding Sphere Radius
+		},
+		vec3( -3.0, 4.0, 1.0),												// Position (3,4,4)
+		vec3( 0.0),															// Rotation
+		vec3( 1.0, 0.0, 1.0),												// Color
+		0.7,																// Opacity
+		glass_index_of_refraction											// Index of refraction
+	},
 };
 
-int objects_count = 4;
+int objects_count = 5;
 
 vec3 recursive_raytrace();
 
@@ -161,9 +185,6 @@ void main()
 	int width = int(gl_NumWorkGroups.x);
 	int height = int(gl_NumWorkGroups.y);
 	ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-
-	if(pixel.x >= 512 || pixel.y >= 288)
-		return;
 
 	//========================================
 	// Defining the view's camera
@@ -399,9 +420,80 @@ struct Collision
 // This defines what a null collision looks like
 Collision null_collision = { -1.0, vec3(0.0), vec3(0.0), false};
 
+Collision intersect_sphere_object(Ray r, Object o)
+{
+	float radius = o.sphere.radius;
+	float qa = dot(r.dir, r.dir);
+	float qb = dot( 2 * r.dir, r.start - o.position);
+	float qc = dot( r.start - o.position, r.start - o.position) - radius * radius;
+
+	// Solving for qa * t^2 + qb * t + qc = 0
+	float qd = qb * qb - 4 * qa * qc;
+
+	Collision c;
+	c.inside = false;
+
+	// If qd < 0, no solution
+	if(qd < 0.0)
+	{
+		c.t = -1.0;
+		return c;
+	}
+
+	float sqrt_qd = sqrt(qd);
+
+	float t1 = (-qb + sqrt_qd) / (2.0 * qa);
+	float t2 = (-qb - sqrt_qd) / (2.0 * qa);
+
+	float t_near = min(t1, t2);
+	float t_far = max(t1, t2);
+
+	c.t = t_near;
+
+// If qd = 0, there is exactly one solution (t_near == t_far)
+//	if(qd == 0.0)
+//	{
+//		return c;
+//	}
+
+
+	// If t_far < 0, the sphere is behind the ray, no intersection
+	if(t_far < 0.0)
+	{
+		c.t = -1.0;
+		return c;
+	}
+
+	// t_near < 0, the ray started inside the sphere
+	if(t_near < 0.0)
+	{
+		// for now, ignore inside collisions
+		c.t = -1.0;
+		return c;
+		c.t = t_far;
+		c.inside = true;
+	}
+
+	// Compute the world position of the collision
+	c.p = r.start + c.t * r.dir;
+
+	// Use the world position to compute the surface normal
+	c.n = normalize(c.p - o.position);
+	
+	// If the collision is leaving the sphere, flip the normal
+	if(c.inside)
+	{
+		c.n *= -1.0;
+	}
+
+
+	return c;
+		
+}
 
 Collision intersect_box_object(Ray r, Object o)
 {
+	//return intersect_sphere_object(r, o);
 	// Compute the box's local-space to world-space transform matrix:
 	mat4 local_to_world = calc_transform_matrix(o.position,o.angles);
 	// Invert it to get the box's world-space to local-space transform:
@@ -437,7 +529,7 @@ Collision intersect_box_object(Ray r, Object o)
 	// The ray intersects the box if and only if t_near < t_far
 	// and if t_far > 0.0
 
-	// If the ray didn't intersect the box:
+	// If the ray didn't intersect the box, return a negative t value
 	if(t_near >= t_far || t_far <= 0.0)
 	{
 		c.t = -1.0;
@@ -446,7 +538,6 @@ Collision intersect_box_object(Ray r, Object o)
 
 	float intersection = t_near;
 	vec3 boundary = t1;
-	float normal = 1.0;
 
 	// if t_near < 0, then the ray started inside the box and left the box
 	if( t_near < 0.0)
@@ -454,8 +545,6 @@ Collision intersect_box_object(Ray r, Object o)
 		c.t = t_far;
 		intersection = t_far;
 		boundary = t2;
-		// FIXME - Should I flip the normal if we are inside?
-		//normal = -1.0;
 		c.inside = true;
 	}
 
@@ -469,7 +558,7 @@ Collision intersect_box_object(Ray r, Object o)
 
 	// Creating the collision normal
 	c.n = vec3(0.0);
-	c.n[face_index] = normal;
+	c.n[face_index] = 1.0;
 
 
 	// If we hit the box from the negative axis, invert the normal
@@ -503,9 +592,7 @@ vec3 raytrace3(Ray r, int depth)
 		// If the object is a box
 		if(objects[i].box != null_box)
 		{
-			//vec2 lambda = intersect_box_object(r, objects[i]);
 			// If the ray intersects the box
-			//if(lambda.x > 0.0 && lambda.x < lambda.y)
 			c = intersect_box_object(r, objects[i]);
 			if(c.t <= 0.0)
 			{
@@ -513,7 +600,15 @@ vec3 raytrace3(Ray r, int depth)
 			}
 		}
 		// If the object is a sphere
-		//else if(objects[i].sphere != null_sphere)
+		else if(objects[i].sphere != null_sphere)
+		{
+			// If the ray intersects the sphere
+			c = intersect_sphere_object(r, objects[i]);
+			if(c.t <= 0.0)
+			{
+				continue;
+			}
+		}
 		//TODO 
 		// etc...
 		else
@@ -555,9 +650,7 @@ vec3 raytrace2(Ray r, int depth)
 		// If the object is a box
 		if(objects[i].box != null_box)
 		{
-			//vec2 lambda = intersect_box_object(r, objects[i]);
 			// If the ray intersects the box
-			//if(lambda.x > 0.0 && lambda.x < lambda.y)
 			c = intersect_box_object(r, objects[i]);
 			if(c.t <= 0.0)
 			{
@@ -565,7 +658,15 @@ vec3 raytrace2(Ray r, int depth)
 			}
 		}
 		// If the object is a sphere
-		//else if(objects[i].sphere != null_sphere)
+		else if(objects[i].sphere != null_sphere)
+		{
+			// If the ray intersects the sphere
+			c = intersect_sphere_object(r, objects[i]);
+			if(c.t <= 0.0)
+			{
+				continue;
+			}
+		}
 		//TODO 
 		// etc...
 		else
@@ -638,9 +739,7 @@ vec3 raytrace(Ray r, int depth)
 		// If the object is a box
 		if(objects[i].box != null_box)
 		{
-			//vec2 lambda = intersect_box_object(r, objects[i]);
 			// If the ray intersects the box
-			//if(lambda.x > 0.0 && lambda.x < lambda.y)
 			c = intersect_box_object(r, objects[i]);
 			if(c.t <= 0.0)
 			{
@@ -648,7 +747,15 @@ vec3 raytrace(Ray r, int depth)
 			}
 		}
 		// If the object is a sphere
-		//else if(objects[i].sphere != null_sphere)
+		else if(objects[i].sphere != null_sphere)
+		{
+			// If the ray intersects the sphere
+			c = intersect_sphere_object(r, objects[i]);
+			if(c.t <= 0.0)
+			{
+				continue;
+			}
+		}
 		//TODO 
 		// etc...
 		else
@@ -692,8 +799,8 @@ vec3 raytrace(Ray r, int depth)
 
 		vec3 refracted_color = vec3(0.0);
 		refracted_color += objects[closest_index].color;
-		refracted_color *= 0.5;
 		refracted_color += raytrace2( transparent_ray, depth - 1);
+		refracted_color *= 0.5;
 		//return vec3(closest_collision.t , refracted_color.g, refracted_color.b) / 10.0;
 		return refracted_color;
 		//----------------------------------------------------------------------------
